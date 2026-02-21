@@ -96,7 +96,7 @@ def main():
     u = create_u_shape(Point(10, 10))
     for i in range(size):
         for j in range(size):
-            xv[j, i] = calculate_lse_distance(u, Point(i, j))
+            xv[j, i] = calculate_euclidian_distance(u, Point(i, j))
     uv, vv = np.gradient(xv)
     fig, ax = plt.subplots()
     os.makedirs("results", exist_ok=True)
