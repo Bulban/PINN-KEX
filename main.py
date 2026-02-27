@@ -57,7 +57,10 @@ class PINN(nn.Module):
         x = torch.sin(self.dense2(x))
         x = torch.sin(self.dense3(x))
         x = self.dense4(x)
-        return (1 - t) * start_pos + t * end_pos + t * (1 - t) * x
+
+        return torch.cat(
+            [(1 - t) * start_pos + t * end_pos + t * (1 - t) * x[0:2], x[2:]], 0
+        )
 
 
 model = PINN().to(device)
@@ -78,7 +81,7 @@ class PathLoss(nn.Module):
         H, W = sdf.shape
 
         # normalize path coords to [-1, 1] as required by grid_sample
-        grid = out[:, 0:1].clone()
+        grid = out[:, 0:2].clone()
         grid[:, 0] = (grid[:, 0] / (W - 1)) * 2 - 1  # x
         grid[:, 1] = (grid[:, 1] / (H - 1)) * 2 - 1  # y
 
@@ -94,8 +97,10 @@ class PathLoss(nn.Module):
         sdf_loss = (1 / (torch.pow(F.softplus(sdf_vals), 2) + 1e-9)).sum()
 
         # Physics loss
-        v_diff = torch.diff(out[:, 0:1], prepend=torch.tensor([start_pos])) / (T / 100)
-        physics_error = torch.tensor(
+        v_diff = torch.diff(out[:, 0:2], prepend=start_pos.unsqueeze(0), dim=0) / (
+            T / 100
+        )
+        physics_error = torch.cat(
             [
                 v_diff[:, 0] - out[:, 2] * torch.cos(out[:, 3]),
                 v_diff[:, 1] - out[:, 2] * torch.sin(out[:, 3]),
@@ -144,14 +149,23 @@ def train(model, optimizer, device, sdf, loss_fn):
             print(f"loss: {loss:>7f}")
             path_x = []
             path_y = []
+            v_list = []
+            omega_list = []
             for point in path_list:
                 path_x.append(point[0].cpu().detach().numpy())
                 path_y.append(point[1].cpu().detach().numpy())
-            fig = plt.figure()
-            plt.plot(path_x, path_y)
-            plt.imshow(sdf.cpu().detach().numpy(), origin="lower")
-            plt.scatter(*start_pos.cpu().detach().numpy())
-            plt.scatter(*end_pos.cpu().detach().numpy())
+                v_list.append(point[2].cpu().detach().numpy())
+                omega_list.append(point[3].cpu().detach().numpy())
+            fig, ax = plt.subplots(1, 3)
+            ax[0].plot()
+            ax[0].plot(path_x, path_y)
+            ax[1].plot(v_list)
+            ax[1].title("V")
+            ax[2].plot(omega_list)
+            ax[2].suptitle("Omega")
+            ax[0].imshow(sdf.cpu().detach().numpy(), origin="lower")
+            ax[0].scatter(*start_pos.cpu().detach().numpy())
+            ax[0].scatter(*end_pos.cpu().detach().numpy())
             experiment.log_figure(fig, step=i)
 
 
