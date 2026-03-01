@@ -113,10 +113,12 @@ class PathLoss(nn.Module):
         physics_loss = torch.pow(physics_error, 2).sum()
 
         # Optimal path loss
+        dt = T / 100
+        optimality_loss = torch.pow(out[:, 5] * dt, 2).sum()
 
         if warming:
             return 100 * softplus_loss
-        return 100 * softplus_loss + sdf_loss + physics_loss
+        return 100 * softplus_loss + sdf_loss + physics_loss + optimality_loss
 
 
 loss = PathLoss().to(device)
@@ -169,13 +171,16 @@ def train(model, optimizer, device, sdf, loss_fn):
             fig, (ax1, ax2) = plt.subplots(2, 2)
             ax1[0].plot()
             ax1[0].plot(path_x, path_y)
-            ax2[0].plot(v_list)
-            ax2[0].plot(phi_list)
-            ax1[1].plot(a_list)
-            ax2[1].plot(omega_list)
+            ax2[0].plot(v_list, label="v")
+            ax2[0].plot(phi_list, label="phi")
+            ax1[1].plot(a_list, label="a")
+            ax2[1].plot(omega_list, label="omega")
             ax1[0].imshow(sdf.cpu().detach().numpy(), origin="lower")
             ax1[0].scatter(*start_pos.cpu().detach().numpy())
             ax1[0].scatter(*end_pos.cpu().detach().numpy())
+            ax2[0].legend()
+            ax1[1].legend()
+            ax2[1].legend()
             experiment.log_figure(fig, step=i)
 
 
