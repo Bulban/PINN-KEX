@@ -34,10 +34,10 @@ vv = torch.tensor(np.load("./data/vv.npy"))
 # # Here define the model of our neural network
 
 # %%
-start_pos = torch.tensor([5, 5]).to(
+start_pos = torch.tensor([5, 5, 0, 0]).to(
     device
 )  # np.random.rand(2) * 40, dtype=torch.float).to(device)
-end_pos = torch.tensor([20, 35]).to(
+end_pos = torch.tensor([20, 35, 0, 0]).to(
     device
 )  # np.random.rand(2) * 40, dtype=torch.float).to(device)
 
@@ -49,7 +49,7 @@ class PINN(nn.Module):
         # change activ fun. more smooth
         self.dense2 = nn.Linear(64, 64)
         self.dense3 = nn.Linear(64, 64)
-        self.dense4 = nn.Sequential(nn.Linear(64, 4))
+        self.dense4 = nn.Sequential(nn.Linear(64, 6))
         self.T = nn.Parameter(torch.tensor([10.0]))
 
     def forward(self, t):
@@ -57,9 +57,8 @@ class PINN(nn.Module):
         x = torch.sin(self.dense2(x))
         x = torch.sin(self.dense3(x))
         x = self.dense4(x)
-
         return torch.cat(
-            [(1 - t) * start_pos + t * end_pos + t * (1 - t) * x[0:2], x[2:]], 0
+            [(1 - t) * start_pos + t * end_pos + t * (1 - t) * x[0:4], x[4:]], dim=0
         )
 
 
@@ -97,16 +96,23 @@ class PathLoss(nn.Module):
         sdf_loss = (1 / (torch.pow(F.softplus(sdf_vals), 2) + 1e-9)).sum()
 
         # Physics loss
-        v_diff = torch.diff(out[:, 0:2], prepend=start_pos.unsqueeze(0), dim=0) / (
+        v_diff = torch.diff(out[:, 0:2], prepend=start_pos[0:2].unsqueeze(0), dim=0) / (
+            T / 100
+        )
+        a_diff = torch.diff(out[:, 2:4], prepend=start_pos[2:4].unsqueeze(0), dim=0) / (
             T / 100
         )
         physics_error = torch.cat(
             [
                 v_diff[:, 0] - out[:, 2] * torch.cos(out[:, 3]),
                 v_diff[:, 1] - out[:, 2] * torch.sin(out[:, 3]),
+                a_diff[:, 0] - out[:, 4],
+                a_diff[:, 1] - out[:, 5],
             ]
         )
         physics_loss = torch.pow(physics_error, 2).sum()
+
+        # Optimal path loss
 
         if warming:
             return 100 * softplus_loss
@@ -150,22 +156,26 @@ def train(model, optimizer, device, sdf, loss_fn):
             path_x = []
             path_y = []
             v_list = []
+            phi_list = []
+            a_list = []
             omega_list = []
             for point in path_list:
                 path_x.append(point[0].cpu().detach().numpy())
                 path_y.append(point[1].cpu().detach().numpy())
                 v_list.append(point[2].cpu().detach().numpy())
-                omega_list.append(point[3].cpu().detach().numpy())
-            fig, ax = plt.subplots(1, 3)
-            ax[0].plot()
-            ax[0].plot(path_x, path_y)
-            ax[1].plot(v_list)
-            ax[1].title("V")
-            ax[2].plot(omega_list)
-            ax[2].suptitle("Omega")
-            ax[0].imshow(sdf.cpu().detach().numpy(), origin="lower")
-            ax[0].scatter(*start_pos.cpu().detach().numpy())
-            ax[0].scatter(*end_pos.cpu().detach().numpy())
+                phi_list.append(point[3].cpu().detach().numpy())
+                a_list.append(point[4].cpu().detach().numpy())
+                omega_list.append(point[5].cpu().detach().numpy())
+            fig, (ax1, ax2) = plt.subplots(2, 2)
+            ax1[0].plot()
+            ax1[0].plot(path_x, path_y)
+            ax2[0].plot(v_list)
+            ax2[0].plot(phi_list)
+            ax1[1].plot(a_list)
+            ax2[1].plot(omega_list)
+            ax1[0].imshow(sdf.cpu().detach().numpy(), origin="lower")
+            ax1[0].scatter(*start_pos.cpu().detach().numpy())
+            ax1[0].scatter(*end_pos.cpu().detach().numpy())
             experiment.log_figure(fig, step=i)
 
 
