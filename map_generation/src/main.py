@@ -1,9 +1,11 @@
+from numpy.ctypeslib import as_array
 from math import sqrt
 import numpy as np
 import os
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from dataclasses import dataclass
+from include.a_star import a_star, find_retreat_turning_points
 
 
 @dataclass
@@ -26,7 +28,7 @@ class Rectangle:
             self.min_coord.x + self.width,
             self.min_coord.y + self.height,
         )
-        self.center = Point(self.min_coord.x + width/2, self.min_coord.y + height/2)
+        self.center = Point(self.min_coord.x + width / 2, self.min_coord.y + height / 2)
 
 
 @dataclass
@@ -36,7 +38,9 @@ class UShape:
 
 def create_u_shape(lower_left: Point, width: int = 5, height: int = 10) -> UShape:
     left_rectangle = Rectangle(lower_left, height + 10, width)
-    mid_rectangle = Rectangle(Point(lower_left.x, lower_left.y), width, height + 2 * width)
+    mid_rectangle = Rectangle(
+        Point(lower_left.x, lower_left.y), width, height + 2 * width
+    )
     right_rectangle = Rectangle(
         Point(lower_left.x + width + height, lower_left.y), height + 10, width
     )
@@ -44,7 +48,7 @@ def create_u_shape(lower_left: Point, width: int = 5, height: int = 10) -> UShap
     return u
 
 
-def create_coordinate_array(size: int = 100)  -> tuple[np.ndarray, np.ndarray]:
+def create_coordinate_array(size: int = 100) -> tuple[np.ndarray, np.ndarray]:
     x_array = np.linspace(0, size, size)
     y_array = np.linspace(0, size, size)
     xv, yv = np.meshgrid(x_array, y_array)
@@ -52,16 +56,21 @@ def create_coordinate_array(size: int = 100)  -> tuple[np.ndarray, np.ndarray]:
 
 
 def distance(rect: Rectangle, point: Point) -> float:
-    dx = max(rect.min_coord.x - point.x,0, point.x - rect.max_coord.x)
-    dy = max(rect.min_coord.y - point.y,0, point.y - rect.max_coord.y)
+    dx = max(rect.min_coord.x - point.x, 0, point.x - rect.max_coord.x)
+    dy = max(rect.min_coord.y - point.y, 0, point.y - rect.max_coord.y)
     return sqrt(dx * dx + dy * dy)
 
+
 def distance_from_rect(rect: Rectangle, point: Point) -> float:
-    x_distance = abs(point.x - rect.center.x) - rect.width/2
-    y_distance = abs(point.y - rect.center.y) - rect.height/2
-    outside_distance = sqrt(max(x_distance, 0) * max(x_distance, 0) + max(y_distance, 0) * max(y_distance, 0))
+    x_distance = abs(point.x - rect.center.x) - rect.width / 2
+    y_distance = abs(point.y - rect.center.y) - rect.height / 2
+    outside_distance = sqrt(
+        max(x_distance, 0) * max(x_distance, 0)
+        + max(y_distance, 0) * max(y_distance, 0)
+    )
     inside_distance = min(max(x_distance, y_distance), 0)
     return outside_distance + inside_distance
+
 
 def in_ushape(u: UShape, point: Point) -> bool:
     for rect in u.rectangles:
@@ -70,8 +79,9 @@ def in_ushape(u: UShape, point: Point) -> bool:
                 return True
     return False
 
+
 def calculate_lse_distance(u: UShape, point: Point, tau: float = 1.0) -> float:
-    #if in_ushape(u, point):
+    # if in_ushape(u, point):
     #    return 0.0
     distances: list[float] = []
     for rect in u.rectangles:
@@ -90,6 +100,10 @@ def calculate_euclidian_distance(u: UShape, point: Point) -> float:
     return np.min(distances)
 
 
+def create_occupancy_grid(sdf: np.ndarray) -> np.ndarray:
+    return (sdf <= 0).astype(sdf.dtype)
+
+
 def main():
     size = 40
     xv, yv = create_coordinate_array(size)
@@ -98,31 +112,41 @@ def main():
         for j in range(size):
             xv[j, i] = calculate_euclidian_distance(u, Point(i, j))
     uv, vv = np.gradient(xv)
+    occupancy_grid: np.ndarray = create_occupancy_grid(xv)
+    goal = (5, 5)
+    start = (20, 20)
+    a_star_path = a_star(start, goal, occupancy_grid)
+    turning_points = np.array(find_retreat_turning_points(a_star_path, goal))
+    a_star_array = np.array(a_star_path)
     fig, ax = plt.subplots()
-    os.makedirs("results", exist_ok=True)
     np.save("../../data/uv.npy", uv)
     np.save("../../data/vv.npy", vv)
     np.save("../../data/distance_field.npy", xv)
-    imshow = ax.imshow(xv, origin="lower")
+    np.save("../../data/occupancy_grid.npy", occupancy_grid)
+    np.save("../../data/a_star_path.npy", a_star_array)
+    np.save("../../data/turning_points.npy", turning_points)
+    imshow = ax.imshow(occupancy_grid, origin="lower")
     fig.colorbar(imshow)
-    ax.quiver( vv,uv, scale=50)
-    rect = u.rectangles
-    #ax.add_patch(
+    # ax.quiver(vv, uv, scale=50)
+    ax.plot(a_star_array[:, 0], a_star_array[:, 1], color="r")
+    ax.scatter(turning_points[:, 0], turning_points[:, 1])
+    # rect = u.rectangles
+    # ax.add_patch(
     #    patches.Rectangle(
     #        (rect[0].min_coord.x, rect[0].min_coord.y), rect[0].width, rect[0].height
     #    )
-    #)
-    #ax.add_patch(
+    # )
+    # ax.add_patch(
     #    patches.Rectangle(
     #        (rect[1].min_coord.x, rect[1].min_coord.y), rect[1].width, rect[1].height
     #    )
-    #)
-    #ax.add_patch(
+    # )
+    # ax.add_patch(
     #    patches.Rectangle(
     #        (rect[2].min_coord.x, rect[2].min_coord.y), rect[2].width, rect[2].height
     #    )
-    #)
-    plt.show()
+    # )
+    plt.savefig("../../data/plot")
 
 
 if __name__ == "__main__":

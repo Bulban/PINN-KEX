@@ -26,12 +26,15 @@ experiment = comet_ml.start(
 sdf = torch.tensor(np.load("./data/distance_field.npy"), dtype=torch.float).to(device)
 uv = torch.tensor(np.load("./data/uv.npy"))
 vv = torch.tensor(np.load("./data/vv.npy"))
+turning_points = torch.tensor(
+    np.load("./data/turning_points.npy"), dtype=torch.float
+).to(device)
 # plt.imshow(sdf)
 
-start_pos = torch.tensor([5, 5, 0, 0]).to(
+start_pos = torch.tensor([20, 20, 0, 0]).to(
     device
 )  # np.random.rand(2) * 40, dtype=torch.float).to(device)
-end_pos = torch.tensor([20, 35, 0, 0]).to(
+end_pos = torch.tensor([5, 5, 0, 0]).to(
     device
 )  # np.random.rand(2) * 40, dtype=torch.float).to(device)
 
@@ -61,8 +64,10 @@ print(model)
 
 
 class PathLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, experiment):
         super(PathLoss, self).__init__()
+        self.experiment = experiment
+        self.step = 0
 
     def forward(self, out, sdf, warming, T):
         # path: (100, 2), sdf: (H, W) tensor
@@ -81,7 +86,7 @@ class PathLoss(nn.Module):
             sdf_input, grid_input, align_corners=True, padding_mode="zeros"
         )  # (1, 1, 1, 100)
         sdf_vals = sdf_vals.squeeze()
-        softplus_loss = F.softplus(-3 * sdf_vals).sum()
+        softplus_loss = F.softplus(-10 * sdf_vals).sum()
         sdf_loss = (1 / (torch.pow(F.softplus(sdf_vals), 2) + 1e-9)).sum()
 
         # Physics loss
@@ -105,12 +110,41 @@ class PathLoss(nn.Module):
         dt = T / 100
         optimality_loss = torch.pow(out[:, 5] * dt, 2).sum()
 
+        # A* Loss
+        a_star_dist = torch.cdist(grid, turning_points)
+        a_star_penalty = torch.pow(torch.min(a_star_dist), 2)
+
+        # Loss coef
+        softplus_coef = 100
+        sdf_coef = 1
+        physics_coef = 1
+        optimality_coef = 100
+        a_star_coef = 100
+
+        self.experiment.log_metrics(
+            {
+                "loss/softplus": softplus_coef * softplus_loss.item(),
+                "loss/sdf": sdf_coef * sdf_loss.item(),
+                "loss/a_star": a_star_coef * a_star_penalty.item(),
+                "loss/physics": physics_coef * physics_loss.item(),
+                "loss/optimality": optimality_coef * optimality_loss.item(),
+            },
+            step=self.step,
+        )
+        self.step += 1
+
         if warming:
-            return 100 * softplus_loss
-        return 100 * softplus_loss + sdf_loss + physics_loss + optimality_loss
+            return softplus_coef * softplus_loss + a_star_coef * a_star_penalty
+        return (
+            softplus_coef * softplus_loss
+            + sdf_coef * sdf_loss
+            + physics_coef * physics_loss
+            + optimality_coef * optimality_loss
+            + a_star_coef * a_star_penalty
+        )
 
 
-loss = PathLoss().to(device)
+loss = PathLoss(experiment).to(device)
 
 hyper_params = {
     "learning_rate": 0.01,
@@ -161,6 +195,8 @@ def train(model, optimizer, device, sdf, loss_fn):
             ax1[1].plot(a_list, label="a")
             ax2[1].plot(omega_list, label="omega")
             ax1[0].imshow(sdf.cpu().detach().numpy(), origin="lower")
+            plot_points = turning_points.cpu().detach().numpy()
+            ax1[0].scatter(plot_points[:, 0], plot_points[:, 1])
             ax1[0].scatter(*start_pos.cpu().detach().numpy())
             ax1[0].scatter(*end_pos.cpu().detach().numpy())
             ax2[0].legend()
