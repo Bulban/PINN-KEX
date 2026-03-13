@@ -10,7 +10,6 @@ import os
 
 load_dotenv()
 
-# %%
 device = (
     torch.accelerator.current_accelerator().type
     if torch.accelerator.is_available()
@@ -24,16 +23,11 @@ experiment = comet_ml.start(
     api_key=comet_api_key, project_name=comet_project_name, workspace=comet_workspace
 )
 
-# %%
 sdf = torch.tensor(np.load("./data/distance_field.npy"), dtype=torch.float).to(device)
 uv = torch.tensor(np.load("./data/uv.npy"))
 vv = torch.tensor(np.load("./data/vv.npy"))
 # plt.imshow(sdf)
 
-# %% [markdown]
-# # Here define the model of our neural network
-
-# %%
 start_pos = torch.tensor([5, 5, 0, 0]).to(
     device
 )  # np.random.rand(2) * 40, dtype=torch.float).to(device)
@@ -66,11 +60,6 @@ model = PINN().to(device)
 print(model)
 
 
-# %% [markdown]
-# # Next we define the loss function
-
-
-# %%
 class PathLoss(nn.Module):
     def __init__(self):
         super(PathLoss, self).__init__()
@@ -123,10 +112,6 @@ class PathLoss(nn.Module):
 
 loss = PathLoss().to(device)
 
-# %% [markdown]
-# # Training Function
-
-# %%
 hyper_params = {
     "learning_rate": 0.01,
     "steps": 4000,
@@ -183,11 +168,6 @@ def train(model, optimizer, device, sdf, loss_fn):
             ax2[1].legend()
             experiment.log_figure(fig, step=i)
 
-
-# %% [markdown]
-# # Run Training
-
-# %%
 
 experiment.log_parameters(hyper_params)
 with experiment.train():
