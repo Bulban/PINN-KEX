@@ -45,6 +45,7 @@ turning_points = torch.tensor(
 ).to(device)
 # plt.imshow(sdf)
 
+# (x, y, v, phi)
 start_pos = torch.tensor([20, 20, 0, 0]).to(
     device
 )  # np.random.rand(2) * 40, dtype=torch.float).to(device)
@@ -64,22 +65,26 @@ class PINN(nn.Module):
         self.T = nn.Parameter(torch.tensor([10.0]))
 
     def forward(self, t):
+        t = t.view(-1, 1)  # ensure t is (N, 1)
         x = torch.sin(self.dense1(t))
         x = torch.sin(self.dense2(x))
         x = torch.sin(self.dense3(x))
-        x = self.dense4(x)
+        x = self.dense4(x) 
+        # x: (N, 6) = N * (x, y, v, phi, a, omega)
         path_coords = (
             (1 - t) * start_pos[0:4].view(1, 4)
             + t * end_pos[0:4].view(1, 4)
             + t * (1 - t) * x[:, 0:4]
         )
-        return torch.cat([path_coords, x[:, 4:]], dim=1)
+        # path_coords: (N, 4) = N * (x, y, v, phi)
+        return torch.cat([path_coords, x[:, 4:]], dim=1) # (N, 6) = N * (path_coords.., a, omega)
+        
 
 
 model = PINN().to(device)
 print(model)
 
-
+a_star_min_point = None
 class PathLoss(nn.Module):
     def __init__(self, experiment):
         super(PathLoss, self).__init__()
@@ -87,7 +92,7 @@ class PathLoss(nn.Module):
         self.step = 0
 
     def forward(self, out, sdf, warming, T):
-        # path: (100, 2), sdf: (H, W) tensor
+        # out: (N, 6), sdf: (H, W) tensor
         H, W = sdf.shape
 
         # normalize path coords to [-1, 1] as required by grid_sample
@@ -128,8 +133,19 @@ class PathLoss(nn.Module):
         optimality_loss = torch.pow(out[:, 5] * dt, 2).sum()
 
         # A* Loss
-        a_star_dist = torch.cdist(grid, turning_points)
-        a_star_penalty = torch.pow(torch.min(a_star_dist), 2)
+        # grid: (N, 2), turning_points: (num_turning_points, 2)
+        cdist_input_grid = out[:, 0:2].clone().unsqueeze(0)  # (1, N, 2)
+        cdist_input_turning = turning_points.unsqueeze(0)  # (1, num_turning_points, 2)
+        a_star_dist = torch.cdist(cdist_input_grid, turning_points).squeeze(0)
+        # a_star_dist: (N, num_turning_points)
+        # print(cdist_input_grid)
+        # print(a_star_dist)
+        # print(turning_points)
+        global a_star_min_point
+        min_dist, min_point = torch.min(a_star_dist, dim=0)
+        min_dist = min_dist.sum()
+        a_star_min_point = min_point[0].cpu().detach().numpy()
+        a_star_penalty = torch.pow(min_dist, 2)
 
         # Loss coef
         softplus_coef = 100
@@ -209,11 +225,13 @@ def train(model, optimizer, device, sdf, loss_fn):
             ax2[1].plot(omega_list, label="omega")
             ax1[0].imshow(sdf.cpu().detach().numpy(), origin="lower")
             plot_points = turning_points.cpu().detach().numpy()
-            ax1[0].scatter(plot_points[:, 0], plot_points[:, 1])
+            ax1[0].scatter(plot_points[:, 0], plot_points[:, 1], color="magenta", marker="*")
             sp = start_pos.cpu().detach().numpy()
-            ax1[0].scatter(sp[0], sp[1], color="red")
+            ax1[0].scatter(sp[0], sp[1], color="limegreen", marker="o")
             ep = end_pos.cpu().detach().numpy()
-            ax1[0].scatter(ep[0], ep[1], color="green")
+            ax1[0].scatter(ep[0], ep[1], color="red", marker="x")
+            # Plot the point the A-star loss is based on, i.e. the closest point on the path
+            ax1[0].scatter(path_x[a_star_min_point.item()], path_y[a_star_min_point.item()], color="yellow", marker="1")
             ax2[0].legend()
             ax1[1].legend()
             ax2[1].legend()
