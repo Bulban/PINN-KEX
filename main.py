@@ -54,9 +54,12 @@ class PINN(nn.Module):
         x = torch.sin(self.dense2(x))
         x = torch.sin(self.dense3(x))
         x = self.dense4(x)
-        return torch.cat(
-            [(1 - t) * start_pos + t * end_pos + t * (1 - t) * x[0:4], x[4:]], dim=0
+        path_coords = (
+            (1 - t) * start_pos[0:4].view(1, 4)
+            + t * end_pos[0:4].view(1, 4)
+            + t * (1 - t) * x[:, 0:4]
         )
+        return torch.cat([path_coords, x[:, 4:]], dim=1)
 
 
 model = PINN().to(device)
@@ -156,15 +159,11 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=hyper_params["learning_rate
 
 def train(model, optimizer, device, sdf, loss_fn):
     model.train()
+    t_steps = torch.arange(100, device=device).float().unsqueeze(1) * 0.01
     for i in range(hyper_params["steps"]):
         optimizer.zero_grad()
-        path_list = []
+        path = model(t_steps)
 
-        for t in range(0, hyper_params["path_steps"]):
-            t_tensor = torch.tensor(t * 1e-2, dtype=torch.float32, device=device)
-            path_list.append(model(t_tensor.unsqueeze(0)))
-
-        path = torch.stack(path_list)
         if i < hyper_params["steps"] / 3:
             loss = loss_fn(path, sdf, True, model.T)
         else:
@@ -180,7 +179,7 @@ def train(model, optimizer, device, sdf, loss_fn):
             phi_list = []
             a_list = []
             omega_list = []
-            for point in path_list:
+            for point in path:
                 path_x.append(point[0].cpu().detach().numpy())
                 path_y.append(point[1].cpu().detach().numpy())
                 v_list.append(point[2].cpu().detach().numpy())
@@ -197,8 +196,10 @@ def train(model, optimizer, device, sdf, loss_fn):
             ax1[0].imshow(sdf.cpu().detach().numpy(), origin="lower")
             plot_points = turning_points.cpu().detach().numpy()
             ax1[0].scatter(plot_points[:, 0], plot_points[:, 1])
-            ax1[0].scatter(*start_pos.cpu().detach().numpy())
-            ax1[0].scatter(*end_pos.cpu().detach().numpy())
+            sp = start_pos.cpu().detach().numpy()
+            ax1[0].scatter(sp[0], sp[1], color="red")
+            ep = end_pos.cpu().detach().numpy()
+            ax1[0].scatter(ep[0], ep[1], color="green")
             ax2[0].legend()
             ax1[1].legend()
             ax2[1].legend()
