@@ -1,3 +1,4 @@
+import re
 from numpy.ctypeslib import as_array
 from math import sqrt
 import numpy as np
@@ -5,6 +6,9 @@ import os
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from dataclasses import dataclass
+from skimage.measure import block_reduce
+from skimage.transform import resize
+from scipy.ndimage import gaussian_filter
 from include.a_star import a_star, find_retreat_turning_points
 
 
@@ -104,6 +108,16 @@ def create_occupancy_grid(sdf: np.ndarray) -> np.ndarray:
     return (sdf <= 0).astype(sdf.dtype)
 
 
+def loss_function(sdf) -> np.ndarray:
+    softplus_loss = np.log(1 + np.exp(-sdf))
+    blurred_sdf = gaussian_filter(sdf, sigma=100)
+    reduced_image = block_reduce(sdf, block_size=(5, 5), func=np.mean)
+    recized_image = resize(reduced_image, (40, 40))
+
+    sdf_loss = 1 / (np.pow(blurred_sdf + recized_image, 2) + 1e-1)
+    return 10 * softplus_loss + 100 * sdf_loss
+
+
 def main():
     size = 40
     xv, yv = create_coordinate_array(size)
@@ -112,6 +126,8 @@ def main():
         for j in range(size):
             xv[j, i] = calculate_euclidian_distance(u, Point(i, j))
     uv, vv = np.gradient(xv)
+    loss = -loss_function(xv)
+    uvloss, vvloss = np.gradient(loss)
     occupancy_grid: np.ndarray = create_occupancy_grid(xv)
     goal = (5, 5)
     start = (20, 20)
@@ -125,11 +141,11 @@ def main():
     np.save("../../data/occupancy_grid.npy", occupancy_grid)
     np.save("../../data/a_star_path.npy", a_star_array)
     np.save("../../data/turning_points.npy", turning_points)
-    imshow = ax.imshow(occupancy_grid, origin="lower")
+    imshow = ax.imshow(loss, origin="lower")
     fig.colorbar(imshow)
-    # ax.quiver(vv, uv, scale=50)
-    ax.plot(a_star_array[:, 0], a_star_array[:, 1], color="r")
-    ax.scatter(turning_points[:, 0], turning_points[:, 1])
+    ax.quiver(vvloss, uvloss, scale=50)
+    # ax.plot(a_star_array[:, 0], a_star_array[:, 1], color="r")
+    # ax.scatter(turning_points[:, 0], turning_points[:, 1])
     # rect = u.rectangles
     # ax.add_patch(
     #    patches.Rectangle(
