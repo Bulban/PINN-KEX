@@ -165,6 +165,17 @@ class PathLoss(nn.Module):
             step=self.step,
         )
         self.step += 1
+        if self.step % 10 == 0:
+            self.experiment.log_metrics(
+                {
+                    "loss/softplus": softplus_coef * softplus_loss.item(),
+                    "loss/sdf": sdf_coef * sdf_loss.item(),
+                    "loss/a_star": a_star_coef * a_star_penalty.item(),
+                    "loss/physics": physics_coef * physics_loss.item(),
+                    "loss/optimality": optimality_coef * optimality_loss.item(),
+                },
+                step=self.step,
+            )
 
         if warming:
             return softplus_coef * softplus_loss + a_star_coef * a_star_penalty
@@ -189,7 +200,7 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=hyper_params["learning_rate
 
 def train(model, optimizer, device, sdf, loss_fn):
     model.train()
-    t_steps = torch.arange(100, device=device).float().unsqueeze(1) * 0.01
+    t_steps = torch.linspace(0, 1, 100, device=device)
     for i in range(hyper_params["steps"]):
         optimizer.zero_grad()
         path = model(t_steps)
@@ -209,13 +220,13 @@ def train(model, optimizer, device, sdf, loss_fn):
             phi_list = []
             a_list = []
             omega_list = []
-            for point in path:
-                path_x.append(point[0].cpu().detach().numpy())
-                path_y.append(point[1].cpu().detach().numpy())
-                v_list.append(point[2].cpu().detach().numpy())
-                phi_list.append(point[3].cpu().detach().numpy())
-                a_list.append(point[4].cpu().detach().numpy())
-                omega_list.append(point[5].cpu().detach().numpy())
+            path_np = path.cpu().detach().numpy()
+            path_x = path_np[:, 0]
+            path_y = path_np[:, 1]
+            v_list = path_np[:, 2]
+            phi_list = path_np[:, 3]
+            a_list = path_np[:, 4]
+            omega_list = path_np[:, 5]
             fig, (ax1, ax2) = plt.subplots(2, 2)
             ax1[0].plot()
             ax1[0].plot(path_x, path_y)
@@ -225,7 +236,9 @@ def train(model, optimizer, device, sdf, loss_fn):
             ax2[1].plot(omega_list, label="omega")
             ax1[0].imshow(sdf.cpu().detach().numpy(), origin="lower")
             plot_points = turning_points.cpu().detach().numpy()
-            ax1[0].scatter(plot_points[:, 0], plot_points[:, 1], color="magenta", marker="*")
+            ax1[0].scatter(
+                plot_points[:, 0], plot_points[:, 1], color="magenta", marker="*"
+            )
             sp = start_pos.cpu().detach().numpy()
             ax1[0].scatter(sp[0], sp[1], color="limegreen", marker="o")
             ep = end_pos.cpu().detach().numpy()
@@ -236,6 +249,7 @@ def train(model, optimizer, device, sdf, loss_fn):
             ax1[1].legend()
             ax2[1].legend()
             experiment.log_figure(fig, step=i)
+            plt.close()
 
 
 experiment.log_parameters(hyper_params)
