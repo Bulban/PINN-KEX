@@ -230,10 +230,10 @@ def train(model, optimizer, device, sdf, loss_fn):
             a_list = path_np[:, 4]
             omega_list = path_np[:, 5]
             fig, (ax1, ax2) = plt.subplots(2, 2)
-            ax1[0].plot()
-            ax1[0].plot(path_x, path_y)
+            ax1[0].plot(path_x, path_y, color="orange")
+            ax1[0].scatter(path_x, path_y)
             ax2[0].plot(v_list, label="v")
-            ax2[0].plot(phi_list, label="phi")
+            ax2[0].plot(phi_list, label="theta")
             ax1[1].plot(a_list, label="a")
             ax2[1].plot(omega_list, label="omega")
             ax1[0].imshow(sdf.cpu().detach().numpy(), origin="lower")
