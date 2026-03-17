@@ -46,10 +46,10 @@ turning_points = torch.tensor(
 # plt.imshow(sdf)
 
 # (x, y, v, phi)
-start_pos = torch.tensor([20, 20, 0, 0]).to(
+start_pos = torch.tensor([20, 20, 0]).to(
     device
 )  # np.random.rand(2) * 40, dtype=torch.float).to(device)
-end_pos = torch.tensor([5, 5, 0, 0]).to(
+end_pos = torch.tensor([5, 5, 0]).to(
     device
 )  # np.random.rand(2) * 40, dtype=torch.float).to(device)
 
@@ -72,13 +72,15 @@ class PINN(nn.Module):
         x = self.dense4(x) 
         # x: (N, 6) = N * (x, y, v, phi, a, omega)
         path_coords = (
-            (1 - t) * start_pos[0:4].view(1, 4)
-            + t * end_pos[0:4].view(1, 4)
-            + t * (1 - t) * x[:, 0:4]
+            (1 - t) * start_pos[0:3].view(1, 3)
+            + t * end_pos[0:3].view(1, 3)
+            + t * (1 - t) * x[:, 0:3]
         )
-        # path_coords: (N, 4) = N * (x, y, v, phi)
-        return torch.cat([path_coords, x[:, 4:]], dim=1) # (N, 6) = N * (path_coords.., a, omega)
-        
+        # path_coords: (N, 3) = N * (x, y, v)
+        #
+        return torch.cat(
+            [path_coords, x[:, 3:]], dim=1
+        )  # (N, 6) = N * (path_coords.., a, omega)
 
 
 model = PINN().to(device)
@@ -112,10 +114,10 @@ class PathLoss(nn.Module):
         sdf_loss = (1 / (torch.pow(F.softplus(sdf_vals), 2) + 1e-9)).sum()
 
         # Physics loss
-        v_diff = torch.diff(out[:, 0:2], prepend=start_pos[0:2].unsqueeze(0), dim=0) / (
+        v_diff = torch.diff(out[:, 0:2], prepend=out[0, 0:2].unsqueeze(0), dim=0) / (
             T / 100
         )
-        a_diff = torch.diff(out[:, 2:4], prepend=start_pos[2:4].unsqueeze(0), dim=0) / (
+        a_diff = torch.diff(out[:, 2:4], prepend=out[0, 2:4].unsqueeze(0), dim=0) / (
             T / 100
         )
         physics_error = torch.cat(
