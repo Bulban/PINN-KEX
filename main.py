@@ -57,11 +57,11 @@ end_pos = torch.tensor([5, 5, 0]).to(
 class PINN(nn.Module):
     def __init__(self):
         super(PINN, self).__init__()
-        self.dense1 = nn.Linear(1, 64)
+        self.dense1 = nn.Linear(1, 128)
         # change activ fun. more smooth
-        self.dense2 = nn.Linear(64, 64)
-        self.dense3 = nn.Linear(64, 64)
-        self.dense4 = nn.Sequential(nn.Linear(64, 6))
+        self.dense2 = nn.Linear(128, 128)
+        self.dense3 = nn.Linear(128, 128)
+        self.dense4 = nn.Linear(128, 6)
         self.T = nn.Parameter(torch.tensor([10.0]))
 
     def forward(self, t):
@@ -69,7 +69,7 @@ class PINN(nn.Module):
         x = torch.sin(self.dense1(t))
         x = torch.sin(self.dense2(x))
         x = torch.sin(self.dense3(x))
-        x = self.dense4(x) 
+        x = self.dense4(x)
         # x: (N, 6) = N * (x, y, v, phi, a, omega)
         path_coords = (
             (1 - t) * start_pos[0:3].view(1, 3)
