@@ -111,7 +111,7 @@ class PathLoss(nn.Module):
         )  # (1, 1, 1, 100)
         sdf_vals = sdf_vals.squeeze()
         softplus_loss = F.softplus(-10 * sdf_vals).sum()
-        sdf_loss = (1 / (torch.pow(F.softplus(sdf_vals), 2) + 1e-9)).sum()
+        sdf_loss = (1 / (torch.pow(sdf_vals, 2) + 1e-2)).sum()
 
         # Physics loss
         v_diff = torch.diff(out[:, 0:2], prepend=out[0, 0:2].unsqueeze(0), dim=0) / (
