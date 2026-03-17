@@ -45,8 +45,8 @@ turning_points = torch.tensor(
 ).to(device)
 # plt.imshow(sdf)
 
-# (x, y, v, phi)
-start_pos = torch.tensor([20, 20, 0]).to(
+# (x, y, v, theta)
+start_pos = torch.tensor([20, 20, 0, 0]).to(
     device
 )  # np.random.rand(2) * 40, dtype=torch.float).to(device)
 end_pos = torch.tensor([5, 5, 0]).to(
@@ -70,7 +70,7 @@ class PINN(nn.Module):
         x = torch.sin(self.dense2(x))
         x = torch.sin(self.dense3(x))
         x = self.dense4(x)
-        # x: (N, 6) = N * (x, y, v, phi, a, omega)
+        # x: (N, 6) = N * (x, y, v, theta, a, omega)
         path_coords = (
             (1 - t) * start_pos[0:3].view(1, 3)
             + t * end_pos[0:3].view(1, 3)
@@ -87,6 +87,8 @@ model = PINN().to(device)
 print(model)
 
 a_star_min_point = None
+
+
 class PathLoss(nn.Module):
     def __init__(self, experiment):
         super(PathLoss, self).__init__()
@@ -219,21 +221,21 @@ def train(model, optimizer, device, sdf, loss_fn):
             path_x = []
             path_y = []
             v_list = []
-            phi_list = []
+            theta_list = []
             a_list = []
             omega_list = []
             path_np = path.cpu().detach().numpy()
             path_x = path_np[:, 0]
             path_y = path_np[:, 1]
             v_list = path_np[:, 2]
-            phi_list = path_np[:, 3]
+            theta_list = path_np[:, 3]
             a_list = path_np[:, 4]
             omega_list = path_np[:, 5]
             fig, (ax1, ax2) = plt.subplots(2, 2)
             ax1[0].plot(path_x, path_y, color="orange")
             ax1[0].scatter(path_x, path_y)
             ax2[0].plot(v_list, label="v")
-            ax2[0].plot(phi_list, label="theta")
+            ax2[0].plot(theta_list, label="theta")
             ax1[1].plot(a_list, label="a")
             ax2[1].plot(omega_list, label="omega")
             ax1[0].imshow(sdf.cpu().detach().numpy(), origin="lower")
@@ -246,7 +248,12 @@ def train(model, optimizer, device, sdf, loss_fn):
             ep = end_pos.cpu().detach().numpy()
             ax1[0].scatter(ep[0], ep[1], color="red", marker="x")
             # Plot the point the A-star loss is based on, i.e. the closest point on the path
-            ax1[0].scatter(path_x[a_star_min_point.item()], path_y[a_star_min_point.item()], color="yellow", marker="1")
+            ax1[0].scatter(
+                path_x[a_star_min_point.item()],
+                path_y[a_star_min_point.item()],
+                color="yellow",
+                marker="1",
+            )
             ax2[0].legend()
             ax1[1].legend()
             ax2[1].legend()
