@@ -9,6 +9,9 @@ from dotenv import load_dotenv
 import os
 import random
 
+from map_generation import Point, Rectangle, UShape
+from map_generation import create_u_shape
+
 
 def seed_everything(seed=42):
     random.seed(seed)
@@ -87,33 +90,31 @@ model = PINN().to(device)
 print(model)
 
 a_star_min_point = None
+u = create_u_shape(Point(10, 10))
 
 
 class PathLoss(nn.Module):
-    def __init__(self, experiment):
+    def __init__(self, experiment, rectangles: UShape):
         super(PathLoss, self).__init__()
         self.experiment = experiment
         self.step = 0
+        self.rectangle_list = rectangles
 
     def forward(self, out, sdf, warming, T):
-        # out: (N, 6), sdf: (H, W) tensor
-        H, W = sdf.shape
 
-        # normalize path coords to [-1, 1] as required by grid_sample
-        grid = out[:, 0:2].clone()
-        grid[:, 0] = (grid[:, 0] / (W - 1)) * 2 - 1  # x
-        grid[:, 1] = (grid[:, 1] / (H - 1)) * 2 - 1  # y
-
-        # grid_sample expects (N, C, H, W) and grid (N, H, W, 2)
-        sdf_input = sdf.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
-        grid_input = grid[:, [1, 0]].unsqueeze(0).unsqueeze(0)  # (1, 1, 100, 2)
-
-        sdf_vals = F.grid_sample(
-            sdf_input, grid_input, align_corners=True, padding_mode="zeros"
-        )  # (1, 1, 1, 100)
-        sdf_vals = sdf_vals.squeeze()
-        softplus_loss = F.softplus(-10 * sdf_vals).sum()
-        sdf_loss = (1 / (torch.pow(sdf_vals, 2) + 1e-2)).sum()
+        # SDF loss
+        tau = 1.0
+        path_xy = out[:, 0:2]  # (N, 2)
+        dists = torch.stack(
+            [
+                self.distance_from_rect(self.rectangle_list.rectangles[0], path_xy),
+                self.distance_from_rect(self.rectangle_list.rectangles[1], path_xy),
+                self.distance_from_rect(self.rectangle_list.rectangles[2], path_xy),
+            ],
+            dim=1,
+        )  # (N, 3)
+        d_lse = -torch.logsumexp(-tau * dists, dim=1) / tau  # (N,)
+        sdf_loss = torch.exp(-tau * d_lse).sum()
 
         # Physics loss
         v_diff = torch.diff(out[:, 0:2], prepend=out[0, 0:2].unsqueeze(0), dim=0) / (
@@ -153,26 +154,16 @@ class PathLoss(nn.Module):
 
         # Loss coef
         softplus_coef = 100
-        sdf_coef = 1
+        sdf_coef = 100
         physics_coef = 1
         optimality_coef = 100
         a_star_coef = 100
 
-        self.experiment.log_metrics(
-            {
-                "loss/softplus": softplus_coef * softplus_loss.item(),
-                "loss/sdf": sdf_coef * sdf_loss.item(),
-                "loss/a_star": a_star_coef * a_star_penalty.item(),
-                "loss/physics": physics_coef * physics_loss.item(),
-                "loss/optimality": optimality_coef * optimality_loss.item(),
-            },
-            step=self.step,
-        )
         self.step += 1
         if self.step % 10 == 0:
             self.experiment.log_metrics(
                 {
-                    "loss/softplus": softplus_coef * softplus_loss.item(),
+                    # "loss/softplus": softplus_coef * softplus_loss.item(),
                     "loss/sdf": sdf_coef * sdf_loss.item(),
                     "loss/a_star": a_star_coef * a_star_penalty.item(),
                     "loss/physics": physics_coef * physics_loss.item(),
@@ -182,21 +173,56 @@ class PathLoss(nn.Module):
             )
 
         if warming:
-            return softplus_coef * softplus_loss + a_star_coef * a_star_penalty
+            return (
+                # softplus_coef * softplus_loss
+                a_star_coef * a_star_penalty + sdf_coef * sdf_loss
+            )
         return (
-            softplus_coef * softplus_loss
-            + sdf_coef * sdf_loss
+            # softplus_coef * softplus_loss
+            sdf_coef * sdf_loss
             + physics_coef * physics_loss
             + optimality_coef * optimality_loss
             + a_star_coef * a_star_penalty
         )
 
+    def distance_from_rect(self, rect: Rectangle, path: torch.Tensor) -> torch.Tensor:
+        x_distance = torch.abs(path[:, 0] - rect.center.x) - rect.width / 2
+        y_distance = torch.abs(path[:, 1] - rect.center.y) - rect.height / 2
+        outside_distance = torch.sqrt(
+            torch.clamp(x_distance, min=0) ** 2 + torch.clamp(y_distance, min=0) ** 2
+        )
+        inside_distance = torch.clamp(torch.maximum(x_distance, y_distance), max=0)
 
-loss = PathLoss(experiment).to(device)
+        return outside_distance + inside_distance
+
+    def calculate_lse_distance(
+        self, u: UShape, point: torch.Tensor, tau: float = 1.0
+    ) -> torch.Tensor:
+        point_2d = point.unsqueeze(0)  # (1, 2) so distance_from_rect works
+        distances = torch.stack(
+            [
+                self.distance_from_rect(u.rectangles[0], point_2d),
+                self.distance_from_rect(u.rectangles[1], point_2d),
+                self.distance_from_rect(u.rectangles[2], point_2d),
+            ]
+        )  # (3,)
+        lse = -torch.logsumexp(-tau * distances, dim=0) / tau
+        return lse
+
+    def in_ushape(self, u: UShape, point: torch.Tensor) -> bool:
+        px, py = point[0].item(), point[1].item()
+        for rect in u.rectangles:
+            if rect.min_coord.x <= px <= rect.max_coord.x:
+                if rect.min_coord.y <= py <= rect.max_coord.y:
+                    return True
+        return False
+
+
+loss = PathLoss(experiment, u).to(device)
 
 hyper_params = {
     "learning_rate": 0.01,
-    "steps": 4000,
+    "steps": 10000,
     "path_steps": 100,
 }
 optimizer = torch.optim.AdamW(model.parameters(), lr=hyper_params["learning_rate"])
