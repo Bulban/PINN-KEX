@@ -49,7 +49,7 @@ turning_points = torch.tensor(
 # plt.imshow(sdf)
 
 # (x, y, v, theta)
-start_pos = torch.tensor([20, 20, 0, 0]).to(
+start_pos = torch.tensor([20, 20, 0]).to(
     device
 )  # np.random.rand(2) * 40, dtype=torch.float).to(device)
 end_pos = torch.tensor([5, 5, 0]).to(
