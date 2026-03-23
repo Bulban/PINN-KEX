@@ -68,6 +68,10 @@ class PINN(nn.Module):
         self.T = nn.Parameter(torch.tensor([10.0]))
 
     def forward(self, t):
+        # None for no bound
+        V_MAX, V_MIN = 10, -10
+        A_MAX, A_MIN = 5, -5
+        OMEGA_MAX, OMEGA_MIN = 1, -1
         t = t.view(-1, 1)  # ensure t is (N, 1)
         x = torch.sin(self.dense1(t))
         x = torch.sin(self.dense2(x))
@@ -82,7 +86,16 @@ class PINN(nn.Module):
         # path_coords: (N, 3) = N * (x, y, v)
         #
         return torch.cat(
-            [path_coords, x[:, 3:]], dim=1
+            [
+                path_coords[:, 0:2],  # x,y unclamped
+                torch.clamp(path_coords[:, 2], V_MIN, V_MAX).unsqueeze(1),  # v clamped
+                x[:, 3].unsqueeze(1),  # theta unclamped
+                torch.clamp(x[:, 4], A_MIN, A_MAX).unsqueeze(1),  # a clamped
+                torch.clamp(x[:, 5], OMEGA_MIN, OMEGA_MAX).unsqueeze(
+                    1
+                ),  # omega clamped
+            ],
+            dim=1,
         )  # (N, 6) = N * (path_coords.., a, omega)
 
 
