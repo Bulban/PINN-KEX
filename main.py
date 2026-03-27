@@ -168,9 +168,9 @@ class PathLoss(nn.Module):
         # Loss coef
         softplus_coef = 100
         sdf_coef = 100
-        physics_coef = 1
+        physics_coef = 0.1
         optimality_coef = 100
-        a_star_coef = 100
+        a_star_coef = 1
 
         self.step += 1
         if self.step % 10 == 0:
