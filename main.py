@@ -130,28 +130,60 @@ class PathLoss(nn.Module):
         sdf_loss = torch.exp(-tau * d_lse).sum()
 
         # Physics loss
-        v_diff = torch.diff(out[:, 0:2], prepend=out[0, 0:2].unsqueeze(0), dim=0) / (
-            T / 100
+        x_dot = (
+            torch.autograd.grad(
+                out[:, 0],
+                t_steps,
+                grad_outputs=torch.ones_like(out[:, 0]),
+                create_graph=True,
+            )[0]
+            / T
         )
-        a_diff = torch.diff(out[:, 2:4], prepend=out[0, 2:4].unsqueeze(0), dim=0) / (
-            T / 100
+        y_dot = (
+            torch.autograd.grad(
+                out[:, 1],
+                t_steps,
+                grad_outputs=torch.ones_like(out[:, 1]),
+                create_graph=True,
+            )[0]
+            / T
         )
-        physics_error = torch.cat(
-            [
-                v_diff[:, 0] - out[:, 2] * torch.cos(out[:, 3]),
-                v_diff[:, 1] - out[:, 2] * torch.sin(out[:, 3]),
-                a_diff[:, 0] - out[:, 4],
-                a_diff[:, 1] - out[:, 5],
-            ]
+        v_dot = (
+            torch.autograd.grad(
+                out[:, 2],
+                t_steps,
+                grad_outputs=torch.ones_like(out[:, 2]),
+                create_graph=True,
+            )[0]
+            / T
         )
-        physics_loss = torch.pow(physics_error, 2).sum()
+
+        theta_dot = (
+            torch.autograd.grad(
+                out[:, 3],
+                t_steps,
+                grad_outputs=torch.ones_like(out[:, 3]),
+                create_graph=True,
+            )[0]
+            / T
+        )
+
+        physics_error_x = x_dot - out[:, 2] * torch.cos(out[:, 3])
+        physics_error_y = y_dot - out[:, 2] * torch.sin(out[:, 3])
+        physics_error_v = v_dot - out[:, 4]
+        physics_error_theta = theta_dot - out[:, 5]
+
+        physics_loss = (
+            physics_error_x**2
+            + physics_error_y**2
+            + physics_error_v**2
+            + physics_error_theta**2
+        ).mean()
 
         # Optimal path loss
         physical_t = t_steps * T
         dt = torch.diff(physical_t)
         # dt = T / 100
-        # print((out[:, 5] * dt).size())
-        # print(T.detach().cpu().numpy())
         optimality_loss = (torch.pow(out[:-1, 5], 2) * dt).sum()
 
         # A* Loss
