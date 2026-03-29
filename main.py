@@ -115,7 +115,7 @@ class PathLoss(nn.Module):
         self.step = 0
         self.rectangle_list = rectangles
 
-    def forward(self, out, sdf, warming, T):
+    def forward(self, out, sdf, warming, T, t_steps, iteration):
 
         # SDF loss
         tau = 1.0
@@ -149,8 +149,12 @@ class PathLoss(nn.Module):
         physics_loss = torch.pow(physics_error, 2).sum()
 
         # Optimal path loss
-        dt = T / 100
-        optimality_loss = torch.pow(out[:, 5] * dt, 2).sum()
+        physical_t = t_steps * T
+        dt = torch.diff(physical_t)
+        # dt = T / 100
+        # print((out[:, 5] * dt).size())
+        # print(T.detach().cpu().numpy())
+        optimality_loss = (torch.pow(out[:-1, 5], 2) * dt).sum()
 
         # A* Loss
         # grid: (N, 2), turning_points: (num_turning_points, 2)
@@ -239,7 +243,7 @@ class PathLoss(nn.Module):
 loss = PathLoss(logger, u).to(device)
 
 hyper_params = {
-    "learning_rate": 0.01,
+    "learning_rate": 0.002,
     "steps": 10000,
     "path_steps": 100,
 }
@@ -248,16 +252,18 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=hyper_params["learning_rate
 
 def train(model, optimizer, device, sdf, loss_fn):
     model.train()
-    t_steps = torch.linspace(0, 1, 100, device=device)
+
     for i in range(hyper_params["steps"]):
+        t_steps, _ = torch.rand(100, requires_grad=True).sort()
+        t_steps = t_steps.to(device)
         optimizer.zero_grad()
         path = model(t_steps)
 
         if i < hyper_params["steps"] / 3:
-            path_loss = loss_fn(path, sdf, True, model.T)
+            loss = loss_fn(path, sdf, True, model.T, t_steps, i)
         else:
-            path_loss = loss_fn(path, sdf, False, model.T)
-        path_loss.backward()
+            loss = loss_fn(path, sdf, False, model.T, t_steps, i)
+        loss.backward()
         optimizer.step()
         if i % 250 == 0:
             path_np = path.detach().cpu().numpy()
@@ -266,7 +272,7 @@ def train(model, optimizer, device, sdf, loss_fn):
             sp = start_pos.detach().cpu().numpy()
             ep = end_pos.detach().cpu().numpy()
             logger.log_figure(
-                loss=path_loss.item(),
+                loss=loss.item(),
                 output=path_np,
                 sdf=sdf_fig,
                 turning_points=plot_points,
