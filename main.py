@@ -177,11 +177,14 @@ class PathLoss(nn.Module):
         physics_coef = 0.1
         optimality_coef = 100
         a_star_coef = 1
+        warming_coef = torch.sigmoid(
+            torch.tensor((iteration - 3000) / 100, dtype=torch.float32)
+        )
 
         final_sdf_loss = sdf_coef * sdf_loss
         final_a_star_loss = a_star_coef * a_star_loss
-        final_physics_loss = physics_coef * physics_loss
-        final_optimality_loss = optimality_coef * optimality_loss
+        final_physics_loss = physics_coef * physics_loss * warming_coef
+        final_optimality_loss = optimality_coef * optimality_loss * warming_coef
 
         self.step += 1
         if self.step % 10 == 0:
@@ -190,15 +193,10 @@ class PathLoss(nn.Module):
                 final_a_star_loss.item(),
                 final_physics_loss.item(),
                 final_optimality_loss.item(),
+                warming_coef.item(),
                 self.step,
             )
-            self.logger.log_metrics(metrics)
 
-        if warming:
-            return (
-                # softplus_coef * softplus_loss
-                final_sdf_loss + final_a_star_loss
-            )
         return (
             # softplus_coef * softplus_loss
             final_sdf_loss

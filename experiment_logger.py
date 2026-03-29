@@ -9,6 +9,7 @@ class Metrics:
     a_star_loss: float
     optimality_loss: float
     physics_loss: float
+    warming: float
     step: int
 
 
@@ -23,6 +24,7 @@ class Logger:
                 "loss/a_star": metrics.a_star_loss,
                 "loss/physics": metrics.physics_loss,
                 "loss/optimality": metrics.optimality_loss,
+                "loss/warming": metrics.warming,
             },
             step=metrics.step,
         )
