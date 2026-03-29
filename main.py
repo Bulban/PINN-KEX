@@ -185,21 +185,19 @@ class PathLoss(nn.Module):
                     "loss/a_star": a_star_coef * a_star_penalty.item(),
                     "loss/physics": physics_coef * physics_loss.item(),
                     "loss/optimality": optimality_coef * optimality_loss.item(),
+                    "loss/warming": torch.sigmoid(
+                        torch.tensor((iteration - 3000) / 100, dtype=torch.float32)
+                    ).item(),
                 },
                 step=self.step,
             )
 
-        if warming:
-            return (
-                # softplus_coef * softplus_loss
-                a_star_coef * a_star_penalty + sdf_coef * sdf_loss
-            )
         return (
             # softplus_coef * softplus_loss
             sdf_coef * sdf_loss
-            + physics_coef * physics_loss
-            + optimality_coef * optimality_loss
             + a_star_coef * a_star_penalty
+            + torch.sigmoid(torch.tensor((iteration - 1000) / 100, dtype=torch.float32))
+            * (physics_coef * physics_loss + optimality_coef * optimality_loss)
         )
 
     def distance_from_rect(self, rect: Rectangle, path: torch.Tensor) -> torch.Tensor:
