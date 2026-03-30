@@ -11,6 +11,7 @@ import random
 
 from map_generation import Point, Rectangle, UShape
 from map_generation import create_u_shape
+from experiment_logger import Logger, Metrics
 
 
 def seed_everything(seed=42):
@@ -39,6 +40,7 @@ comet_workspace = os.getenv("COMET_WORKSPACE")
 experiment = comet_ml.start(
     api_key=comet_api_key, project_name=comet_project_name, workspace=comet_workspace
 )
+logger = Logger(experiment)
 
 sdf = torch.tensor(np.load("./data/distance_field.npy"), dtype=torch.float).to(device)
 uv = torch.tensor(np.load("./data/uv.npy"))
@@ -107,9 +109,9 @@ u = create_u_shape(Point(10, 10))
 
 
 class PathLoss(nn.Module):
-    def __init__(self, experiment, rectangles: UShape):
+    def __init__(self, logger: Logger, rectangles: UShape):
         super(PathLoss, self).__init__()
-        self.experiment = experiment
+        self.logger = logger
         self.step = 0
         self.rectangle_list = rectangles
 
@@ -162,8 +164,8 @@ class PathLoss(nn.Module):
         global a_star_min_point
         min_dist, min_point = torch.min(a_star_dist, dim=0)
         min_dist = min_dist.sum()
-        a_star_min_point = min_point[0].cpu().detach().numpy()
-        a_star_penalty = torch.pow(min_dist, 2)
+        a_star_min_point = min_point[0].cpu().detach().numpy().item()
+        a_star_loss = torch.pow(min_dist, 2)
 
         # Loss coef
         softplus_coef = 100
@@ -172,30 +174,33 @@ class PathLoss(nn.Module):
         optimality_coef = 100
         a_star_coef = 1
 
+        final_sdf_loss = sdf_coef * sdf_loss
+        final_a_star_loss = a_star_coef * a_star_loss
+        final_physics_loss = physics_coef * physics_loss
+        final_optimality_loss = optimality_coef * optimality_loss
+
         self.step += 1
         if self.step % 10 == 0:
-            self.experiment.log_metrics(
-                {
-                    # "loss/softplus": softplus_coef * softplus_loss.item(),
-                    "loss/sdf": sdf_coef * sdf_loss.item(),
-                    "loss/a_star": a_star_coef * a_star_penalty.item(),
-                    "loss/physics": physics_coef * physics_loss.item(),
-                    "loss/optimality": optimality_coef * optimality_loss.item(),
-                },
-                step=self.step,
+            metrics = Metrics(
+                final_sdf_loss.item(),
+                final_a_star_loss.item(),
+                final_physics_loss.item(),
+                final_optimality_loss.item(),
+                self.step,
             )
+            self.logger.log_metrics(metrics)
 
         if warming:
             return (
                 # softplus_coef * softplus_loss
-                a_star_coef * a_star_penalty + sdf_coef * sdf_loss
+                final_sdf_loss + final_a_star_loss
             )
         return (
             # softplus_coef * softplus_loss
-            sdf_coef * sdf_loss
-            + physics_coef * physics_loss
-            + optimality_coef * optimality_loss
-            + a_star_coef * a_star_penalty
+            final_sdf_loss
+            + final_a_star_loss
+            + final_physics_loss
+            + final_optimality_loss
         )
 
     def distance_from_rect(self, rect: Rectangle, path: torch.Tensor) -> torch.Tensor:
@@ -231,7 +236,7 @@ class PathLoss(nn.Module):
         return False
 
 
-loss = PathLoss(experiment, u).to(device)
+loss = PathLoss(logger, u).to(device)
 
 hyper_params = {
     "learning_rate": 0.01,
@@ -249,58 +254,30 @@ def train(model, optimizer, device, sdf, loss_fn):
         path = model(t_steps)
 
         if i < hyper_params["steps"] / 3:
-            loss = loss_fn(path, sdf, True, model.T)
+            path_loss = loss_fn(path, sdf, True, model.T)
         else:
-            loss = loss_fn(path, sdf, False, model.T)
-        loss.backward()
+            path_loss = loss_fn(path, sdf, False, model.T)
+        path_loss.backward()
         optimizer.step()
         if i % 250 == 0:
-            loss = loss.item()
-            print(f"loss: {loss:>7f}")
-            path_x = []
-            path_y = []
-            v_list = []
-            theta_list = []
-            a_list = []
-            omega_list = []
-            path_np = path.cpu().detach().numpy()
-            path_x = path_np[:, 0]
-            path_y = path_np[:, 1]
-            v_list = path_np[:, 2]
-            theta_list = path_np[:, 3]
-            a_list = path_np[:, 4]
-            omega_list = path_np[:, 5]
-            fig, (ax1, ax2) = plt.subplots(2, 2)
-            ax1[0].plot(path_x, path_y, color="orange")
-            ax1[0].scatter(path_x, path_y)
-            ax2[0].plot(v_list, label="v")
-            ax2[0].plot(theta_list, label="theta")
-            ax1[1].plot(a_list, label="a")
-            ax2[1].plot(omega_list, label="omega")
-            ax1[0].imshow(sdf.cpu().detach().numpy(), origin="lower")
-            plot_points = turning_points.cpu().detach().numpy()
-            ax1[0].scatter(
-                plot_points[:, 0], plot_points[:, 1], color="magenta", marker="*"
+            path_np = path.detach().cpu().numpy()
+            sdf_fig = sdf.detach().cpu().numpy()
+            plot_points = turning_points.detach().cpu().numpy()
+            sp = start_pos.detach().cpu().numpy()
+            ep = end_pos.detach().cpu().numpy()
+            logger.log_figure(
+                loss=path_loss.item(),
+                output=path_np,
+                sdf=sdf_fig,
+                turning_points=plot_points,
+                start_pos=sp,
+                end_pos=ep,
+                step=i,
+                a_star_point=a_star_min_point,
             )
-            sp = start_pos.cpu().detach().numpy()
-            ax1[0].scatter(sp[0], sp[1], color="limegreen", marker="o")
-            ep = end_pos.cpu().detach().numpy()
-            ax1[0].scatter(ep[0], ep[1], color="red", marker="x")
-            # Plot the point the A-star loss is based on, i.e. the closest point on the path
-            ax1[0].scatter(
-                path_x[a_star_min_point.item()],
-                path_y[a_star_min_point.item()],
-                color="yellow",
-                marker="1",
-            )
-            ax2[0].legend()
-            ax1[1].legend()
-            ax2[1].legend()
-            experiment.log_figure(fig, step=i)
-            plt.close()
 
 
-experiment.log_parameters(hyper_params)
-with experiment.train():
+logger.log_parameters(hyper_params)
+with logger.get_experiment().train():
     train(model, optimizer, device, sdf, loss)
-experiment.end()
+logger.end_experiment()

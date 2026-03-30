@@ -1,3 +1,4 @@
+from cmath import tau
 import re
 from numpy.ctypeslib import as_array
 from math import sqrt
@@ -5,11 +6,14 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import matplotlib
 from dataclasses import dataclass
 from skimage.measure import block_reduce
 from skimage.transform import resize
 from scipy.ndimage import gaussian_filter
 from include.a_star import a_star, find_retreat_turning_points
+
+matplotlib.use("QtAgg")
 
 
 @dataclass
@@ -85,15 +89,15 @@ def in_ushape(u: UShape, point: Point) -> bool:
 
 
 def calculate_lse_distance(u: UShape, point: Point, tau: float = 1.0) -> float:
-    # if in_ushape(u, point):
-    #    return 0.0
+    if in_ushape(u, point):
+        return 0.0
     distances: list[float] = []
     for rect in u.rectangles:
         distances.append(distance_from_rect(rect, point))
     exp_sum = 0.0
     for dist in distances:
-        exp_sum += np.exp(-dist / tau)
-    return -np.log(exp_sum) * tau
+        exp_sum += np.exp(-dist * tau)
+    return np.log(exp_sum) * (-1 / tau)
 
 
 def calculate_euclidian_distance(u: UShape, point: Point) -> float:
@@ -118,32 +122,39 @@ def loss_function(sdf) -> np.ndarray:
     return 10 * softplus_loss + 100 * sdf_loss
 
 
+def smooth_sdf(sdf: np.ndarray) -> np.ndarray:
+    smoothed_sdf = gaussian_filter(sdf, sigma=8, radius=10)
+    return smoothed_sdf
+
+
 def main():
     size = 40
-    xv, yv = create_coordinate_array(size)
+    sdf, yv = create_coordinate_array(size)
     u = create_u_shape(Point(10, 10))
     for i in range(size):
         for j in range(size):
-            xv[j, i] = calculate_euclidian_distance(u, Point(i, j))
-    uv, vv = np.gradient(xv)
-    loss = -loss_function(xv)
+            sdf[j, i] = calculate_lse_distance(u, Point(i, j), tau=1)
+    sdf_smoothed = smooth_sdf(sdf)
+    alpha = 1
+    beta = 1
+    final_sdf = alpha / (np.pow(sdf, 2) + 1e-1) + beta / (
+        np.pow(sdf_smoothed, 1) + 1e-1
+    )
+    uv, vv = np.gradient(final_sdf)
+    loss = -loss_function(sdf)
     uvloss, vvloss = np.gradient(loss)
-    occupancy_grid: np.ndarray = create_occupancy_grid(xv)
+    occupancy_grid: np.ndarray = create_occupancy_grid(sdf)
     goal = (5, 5)
     start = (20, 20)
     a_star_path = a_star(start, goal, occupancy_grid)
     turning_points = np.array(find_retreat_turning_points(a_star_path, goal))
     a_star_array = np.array(a_star_path)
+
+    # Plotting
     fig, ax = plt.subplots()
-    np.save("../../data/uv.npy", uv)
-    np.save("../../data/vv.npy", vv)
-    np.save("../../data/distance_field.npy", xv)
-    np.save("../../data/occupancy_grid.npy", occupancy_grid)
-    np.save("../../data/a_star_path.npy", a_star_array)
-    np.save("../../data/turning_points.npy", turning_points)
-    imshow = ax.imshow(loss, origin="lower")
+    imshow = ax.imshow(final_sdf, origin="lower")
     fig.colorbar(imshow)
-    ax.quiver(vvloss, uvloss, scale=50)
+    ax.quiver(vv, uv, scale=50)
     # ax.plot(a_star_array[:, 0], a_star_array[:, 1], color="r")
     # ax.scatter(turning_points[:, 0], turning_points[:, 1])
     # rect = u.rectangles
@@ -162,7 +173,16 @@ def main():
     #        (rect[2].min_coord.x, rect[2].min_coord.y), rect[2].width, rect[2].height
     #    )
     # )
+    plt.show()
+
+    # Saving
     plt.savefig("../../data/plot")
+    np.save("../../data/uv.npy", uv)
+    np.save("../../data/vv.npy", vv)
+    np.save("../../data/distance_field.npy", final_sdf)
+    np.save("../../data/occupancy_grid.npy", occupancy_grid)
+    np.save("../../data/a_star_path.npy", a_star_array)
+    np.save("../../data/turning_points.npy", turning_points)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ dependencies = [
     "jupyterlab>=4.5.4",
     "matplotlib>=3.10.8",
     "pandas>=3.0.1",
+    "pyqt6>=6.10.2",
     "scikit-image>=0.26.0",
     "scikit-learn>=1.8.0",
     "scipy>=1.17.0",
