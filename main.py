@@ -60,11 +60,18 @@ end_pos = torch.tensor([5, 5, 0]).to(
 class PINN(nn.Module):
     def __init__(self):
         super(PINN, self).__init__()
+        upper1 = np.sqrt(6)
+        lower1 = -np.sqrt(6)
+        upper = np.sqrt(6 / 128)
+        lower = -np.sqrt(6 / 128)
         self.dense1 = nn.Linear(1, 128)
-        # change activ fun. more smooth
+        torch.nn.init.uniform_(self.dense1.weight, lower1 * 30, upper1 * 30)
         self.dense2 = nn.Linear(128, 128)
+        torch.nn.init.uniform_(self.dense2.weight, lower, upper)
         self.dense3 = nn.Linear(128, 128)
+        torch.nn.init.uniform_(self.dense3.weight, lower, upper)
         self.dense4 = nn.Linear(128, 6)
+        torch.nn.init.uniform_(self.dense4.weight, lower, upper)
         self.T = nn.Parameter(torch.tensor([10.0]))
 
     def forward(self, t):
