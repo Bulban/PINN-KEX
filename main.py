@@ -93,7 +93,9 @@ class PINN(nn.Module):
                 torch.clamp(x[:, 2], V_MIN, V_MAX).unsqueeze(1),  # v clamped
                 x[:, 3].unsqueeze(1),  # theta unclamped
                 torch.clamp(x[:, 4], A_MIN, A_MAX).unsqueeze(1),  # a clamped
-                torch.clamp(x[:, 5], OMEGA_MIN, OMEGA_MAX).unsqueeze(1),  # omega clamped
+                torch.clamp(x[:, 5], OMEGA_MIN, OMEGA_MAX).unsqueeze(
+                    1
+                ),  # omega clamped
             ],
             dim=1,
         )  # (N, 6) = N * (x, y, v, theta, a, omega)
@@ -108,7 +110,13 @@ s = create_s_shape(Point(50, 50))
 
 
 class PathLoss(nn.Module):
-    def __init__(self, logger: Logger, rectangles: UShape | SShape, start: torch.Tensor, end: torch.Tensor):
+    def __init__(
+        self,
+        logger: Logger,
+        rectangles: UShape | SShape,
+        start: torch.Tensor,
+        end: torch.Tensor,
+    ):
         super(PathLoss, self).__init__()
         self.logger = logger
         self.step = 0
@@ -218,7 +226,7 @@ class PathLoss(nn.Module):
         a_star_coef = 0.05
         boundary_coef = 10
         warming_coef = torch.sigmoid(
-            torch.tensor((iteration - 3000) / 100, dtype=torch.float32)
+            torch.tensor((iteration - warming_it) / 100, dtype=torch.float32)
         )
 
         final_sdf_loss = sdf_coef * sdf_loss
@@ -302,10 +310,8 @@ def train(model, optimizer, device, sdf, loss_fn):
         optimizer.zero_grad()
         path = model(t_steps)
 
-        if i < hyper_params["steps"] / 3:
-            loss = loss_fn(path, sdf, True, model.T, t_steps, i)
-        else:
-            loss = loss_fn(path, sdf, False, model.T, t_steps, i)
+        warming_it = hyper_params["steps"] / 3
+        loss = loss_fn(path, sdf, warming_it, model.T, t_steps, i)
         loss.backward()
         optimizer.step()
         if i % 250 == 0:
