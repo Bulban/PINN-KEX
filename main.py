@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 import os
 import random
 
-from map_generation import Point, Rectangle, UShape
-from map_generation import create_u_shape
+from map_generation import Point, Rectangle, UShape, SShape
+from map_generation import create_u_shape, create_s_shape
 from experiment_logger import Logger, Metrics
 
 
@@ -51,10 +51,10 @@ turning_points = torch.tensor(
 # plt.imshow(sdf)
 
 # (x, y, v, theta)
-start_pos = torch.tensor([20, 20, 0]).to(
+start_pos = torch.tensor([40, 50, 0]).to(
     device
 )  # np.random.rand(2) * 40, dtype=torch.float).to(device)
-end_pos = torch.tensor([5, 5, 0]).to(
+end_pos = torch.tensor([60, 50, 0]).to(
     device
 )  # np.random.rand(2) * 40, dtype=torch.float).to(device)
 
@@ -87,25 +87,16 @@ class PINN(nn.Module):
         x = torch.sin(self.dense3(x))
         x = self.dense4(x)
         # x: (N, 6) = N * (x, y, v, theta, a, omega)
-        path_coords = (
-            (1 - t) * start_pos[0:3].view(1, 3)
-            + t * end_pos[0:3].view(1, 3)
-            + t * (1 - t) * x[:, 0:3]
-        )
-        # path_coords: (N, 3) = N * (x, y, v)
-        #
         return torch.cat(
             [
-                path_coords[:, 0:2],  # x,y unclamped
-                torch.clamp(path_coords[:, 2], V_MIN, V_MAX).unsqueeze(1),  # v clamped
+                x[:, 0:2],  # x,y unclamped
+                torch.clamp(x[:, 2], V_MIN, V_MAX).unsqueeze(1),  # v clamped
                 x[:, 3].unsqueeze(1),  # theta unclamped
                 torch.clamp(x[:, 4], A_MIN, A_MAX).unsqueeze(1),  # a clamped
-                torch.clamp(x[:, 5], OMEGA_MIN, OMEGA_MAX).unsqueeze(
-                    1
-                ),  # omega clamped
+                torch.clamp(x[:, 5], OMEGA_MIN, OMEGA_MAX).unsqueeze(1),  # omega clamped
             ],
             dim=1,
-        )  # (N, 6) = N * (path_coords.., a, omega)
+        )  # (N, 6) = N * (x, y, v, theta, a, omega)
 
 
 model = PINN().to(device)
@@ -113,14 +104,17 @@ print(model)
 
 a_star_min_point = None
 u = create_u_shape(Point(10, 10))
+s = create_s_shape(Point(50, 50))
 
 
 class PathLoss(nn.Module):
-    def __init__(self, logger: Logger, rectangles: UShape):
+    def __init__(self, logger: Logger, rectangles: UShape | SShape, start: torch.Tensor, end: torch.Tensor):
         super(PathLoss, self).__init__()
         self.logger = logger
         self.step = 0
         self.rectangle_list = rectangles
+        self.start = start
+        self.end = end
 
     def forward(self, out, sdf, warming, T, t_steps, iteration):
 
@@ -129,14 +123,14 @@ class PathLoss(nn.Module):
         path_xy = out[:, 0:2]  # (N, 2)
         dists = torch.stack(
             [
-                self.distance_from_rect(self.rectangle_list.rectangles[0], path_xy),
-                self.distance_from_rect(self.rectangle_list.rectangles[1], path_xy),
-                self.distance_from_rect(self.rectangle_list.rectangles[2], path_xy),
+                self.distance_from_rect(rect, path_xy)
+                for rect in self.rectangle_list.rectangles
             ],
             dim=1,
         )  # (N, 3)
         d_lse = -torch.logsumexp(-tau * dists, dim=1) / tau  # (N,)
-        sdf_loss = torch.exp(-tau * d_lse).sum()
+        margin = 5
+        sdf_loss = torch.clamp(margin - d_lse, min=0).pow(2).mean()
 
         # Physics loss
         x_dot = (
@@ -210,12 +204,19 @@ class PathLoss(nn.Module):
         a_star_min_point = min_point[0].cpu().detach().numpy().item()
         a_star_loss = torch.pow(min_dist, 2)
 
+        # Boundary loss
+        boundary_loss = (
+            (out[0, 0:3] - self.start[0:3]).pow(2).sum()
+            + (out[-1, 0:3] - self.end[0:3]).pow(2).sum()
+        )
+
         # Loss coef
         softplus_coef = 100
-        sdf_coef = 1
+        sdf_coef = 10
         physics_coef = 1
         optimality_coef = 5
-        a_star_coef = 0.1
+        a_star_coef = 0.05
+        boundary_coef = 10
         warming_coef = torch.sigmoid(
             torch.tensor((iteration - 3000) / 100, dtype=torch.float32)
         )
@@ -224,6 +225,7 @@ class PathLoss(nn.Module):
         final_a_star_loss = a_star_coef * a_star_loss
         final_physics_loss = physics_coef * physics_loss * warming_coef
         final_optimality_loss = optimality_coef * optimality_loss * warming_coef
+        final_boundary_loss = boundary_coef * boundary_loss
 
         self.step += 1
         if self.step % 10 == 0:
@@ -235,8 +237,7 @@ class PathLoss(nn.Module):
                 warming_coef.item(),
                 self.step,
             )
-
-        logger.log_metrics(metrics)
+            logger.log_metrics(metrics)
 
         return (
             # softplus_coef * softplus_loss
@@ -244,6 +245,7 @@ class PathLoss(nn.Module):
             + final_a_star_loss
             + final_physics_loss
             + final_optimality_loss
+            + final_boundary_loss
         )
 
     def distance_from_rect(self, rect: Rectangle, path: torch.Tensor) -> torch.Tensor:
@@ -279,7 +281,7 @@ class PathLoss(nn.Module):
         return False
 
 
-loss = PathLoss(logger, u).to(device)
+loss = PathLoss(logger, s, start_pos, end_pos).to(device)
 
 hyper_params = {
     "learning_rate": 0.002,
@@ -293,8 +295,9 @@ def train(model, optimizer, device, sdf, loss_fn):
     model.train()
 
     for i in range(hyper_params["steps"]):
-        t_steps, _ = torch.rand(100, requires_grad=True).sort()
-        t_steps = t_steps.to(device)
+        t_interior = torch.rand(98)
+        t_steps = torch.cat([torch.zeros(1), t_interior, torch.ones(1)]).sort()[0]
+        t_steps = t_steps.detach().requires_grad_(True).to(device)
         optimizer.zero_grad()
         path = model(t_steps)
 
