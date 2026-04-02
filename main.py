@@ -295,8 +295,9 @@ def train(model, optimizer, device, sdf, loss_fn):
     model.train()
 
     for i in range(hyper_params["steps"]):
-        t_interior = torch.rand(98)
-        t_steps = torch.cat([torch.zeros(1), t_interior, torch.ones(1)]).sort()[0]
+        t_interior = torch.rand(100)
+        t_static = torch.linspace(0, 1, 100)
+        t_steps = torch.cat([t_static, t_interior]).sort()[0]
         t_steps = t_steps.detach().requires_grad_(True).to(device)
         optimizer.zero_grad()
         path = model(t_steps)
