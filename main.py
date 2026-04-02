@@ -200,15 +200,15 @@ class PathLoss(nn.Module):
         # print(turning_points)
         global a_star_min_point
         min_dist, min_point = torch.min(a_star_dist, dim=0)
-        min_dist = min_dist.sum()
+        min_dist = torch.pow(min_dist, 2)
+        a_star_loss = min_dist.sum()
         a_star_min_point = min_point[0].cpu().detach().numpy().item()
         a_star_loss = torch.pow(min_dist, 2)
 
         # Boundary loss
-        boundary_loss = (
-            (out[0, 0:3] - self.start[0:3]).pow(2).sum()
-            + (out[-1, 0:3] - self.end[0:3]).pow(2).sum()
-        )
+        boundary_loss = (out[0, 0:3] - self.start[0:3]).pow(2).sum() + (
+            out[-1, 0:3] - self.end[0:3]
+        ).pow(2).sum()
 
         # Loss coef
         softplus_coef = 100
