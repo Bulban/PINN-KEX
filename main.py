@@ -2,6 +2,7 @@
 import comet_ml
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -23,6 +24,8 @@ def seed_everything(seed=42):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+
+matplotlib.use("Agg")
 
 seed_everything(42)
 
@@ -78,7 +81,7 @@ class PINN(nn.Module):
 
     def forward(self, t):
         # None for no bound
-        V_MAX, V_MIN = 10, -10
+        V_MAX, V_MIN = 10, 0
         A_MAX, A_MIN = 5, -5
         OMEGA_MAX, OMEGA_MIN = 1, -1
         t = t.view(-1, 1)  # ensure t is (N, 1)
@@ -198,20 +201,23 @@ class PathLoss(nn.Module):
         optimality_loss = (torch.pow(out[:-1, 5], 2) * dt).sum()
 
         # A* Loss
-        # grid: (N, 2), turning_points: (num_turning_points, 2)
-        cdist_input_grid = out[:, 0:2].clone().unsqueeze(0)  # (1, N, 2)
-        cdist_input_turning = turning_points.unsqueeze(0)  # (1, num_turning_points, 2)
-        a_star_dist = torch.cdist(cdist_input_grid, turning_points).squeeze(0)
-        # a_star_dist: (N, num_turning_points)
-        # print(cdist_input_grid)
-        # print(a_star_dist)
-        # print(turning_points)
-        global a_star_min_point
-        min_dist, min_point = torch.min(a_star_dist, dim=0)
-        min_dist = torch.pow(min_dist, 2)
-        a_star_loss = min_dist.sum()
-        a_star_min_point = min_point[0].cpu().detach().numpy().item()
-        a_star_loss = torch.pow(min_dist, 2)
+        n_turning_points = turning_points.size()[0]
+        n_path_steps = out.size()[0]
+        a_star_loss = 0
+        for i in range(n_turning_points):
+            lower_limit = i * n_path_steps // n_turning_points
+            upper_limit = (i + 1) * n_path_steps // n_turning_points
+            upper_limit = min(n_path_steps, upper_limit)
+            cdist_input_grid = (
+                out[lower_limit:upper_limit, 0:2].clone().unsqueeze(0)
+            )  # (1, N, 2)
+            a_star_dist = torch.cdist(
+                cdist_input_grid, turning_points[i, :].unsqueeze(0)
+            ).squeeze(0)
+            global a_star_min_point
+            min_dist, min_point = torch.min(a_star_dist, dim=0)
+            a_star_min_point = min_point[0].cpu().detach().numpy().item()
+            a_star_loss += torch.pow(min_dist[0], 2)
 
         # Boundary loss
         boundary_loss = (out[0, 0:3] - self.start[0:3]).pow(2).sum() + (
@@ -219,27 +225,28 @@ class PathLoss(nn.Module):
         ).pow(2).sum()
 
         # Loss coef
-        softplus_coef = 100
         sdf_coef = 10
-        physics_coef = 1
-        optimality_coef = 5
-        a_star_coef = 0.05
+        physics_coef = 10
+        optimality_coef = 3
+        a_star_coef = 0.10
         boundary_coef = 10
         warming_coef = torch.sigmoid(
             torch.tensor((iteration - warming_it) / 100, dtype=torch.float32)
         )
 
+        # Loss term calculation
         final_sdf_loss = sdf_coef * sdf_loss
         final_a_star_loss = a_star_coef * a_star_loss
         final_physics_loss = physics_coef * physics_loss * warming_coef
         final_optimality_loss = optimality_coef * optimality_loss * warming_coef
         final_boundary_loss = boundary_coef * boundary_loss
 
+        # loggins
         self.step += 1
         if self.step % 10 == 0:
             metrics = Metrics(
                 final_sdf_loss.item(),
-                final_a_star_loss.item(),
+                final_a_star_loss,
                 final_physics_loss.item(),
                 final_optimality_loss.item(),
                 warming_coef.item(),
@@ -293,7 +300,7 @@ loss = PathLoss(logger, s, start_pos, end_pos).to(device)
 
 hyper_params = {
     "learning_rate": 0.002,
-    "steps": 10000,
+    "training_iterations": 10000,
     "path_steps": 100,
 }
 optimizer = torch.optim.AdamW(model.parameters(), lr=hyper_params["learning_rate"])
@@ -302,7 +309,7 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=hyper_params["learning_rate
 def train(model, optimizer, device, sdf, loss_fn):
     model.train()
 
-    for i in range(hyper_params["steps"]):
+    for i in range(hyper_params["training_iterations"]):
         t_interior = torch.rand(100)
         t_static = torch.linspace(0, 1, 100)
         t_steps = torch.cat([t_static, t_interior]).sort()[0]
@@ -310,7 +317,7 @@ def train(model, optimizer, device, sdf, loss_fn):
         optimizer.zero_grad()
         path = model(t_steps)
 
-        warming_it = hyper_params["steps"] / 3
+        warming_it = hyper_params["steps"] / 2
         loss = loss_fn(path, sdf, warming_it, model.T, t_steps, i)
         loss.backward()
         optimizer.step()

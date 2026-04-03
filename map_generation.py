@@ -13,7 +13,11 @@ from skimage.transform import resize
 from scipy.ndimage import gaussian_filter
 from a_star import a_star, find_retreat_turning_points
 
-matplotlib.use("QtAgg")
+
+if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+    matplotlib.use("QtAgg")
+else:
+    matplotlib.use("Agg")
 
 
 @dataclass
