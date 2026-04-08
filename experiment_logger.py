@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 
 @dataclass
 class Metrics:
+    time_T: float
     sdf_loss: float
     a_star_loss: float
     optimality_loss: float
@@ -20,6 +21,7 @@ class Logger:
     def log_metrics(self, metrics: Metrics) -> None:
         self.experiment_.log_metrics(
             {
+                "params/T": metrics.time_T,
                 "loss/sdf": metrics.sdf_loss,
                 "loss/a_star": metrics.a_star_loss,
                 "loss/physics": metrics.physics_loss,

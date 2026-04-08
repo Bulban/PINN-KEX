@@ -228,6 +228,7 @@ class PathLoss(nn.Module):
         self.step += 1
         if self.step % 10 == 0:
             metrics = Metrics(
+                T.item(),
                 final_sdf_loss.item(),
                 final_a_star_loss.item(),
                 final_physics_loss.item(),
@@ -236,7 +237,7 @@ class PathLoss(nn.Module):
                 self.step,
             )
 
-        logger.log_metrics(metrics)
+            logger.log_metrics(metrics)
 
         return (
             # softplus_coef * softplus_loss
