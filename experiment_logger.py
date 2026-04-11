@@ -1,5 +1,5 @@
-import comet_ml
-from dataclasses import dataclass
+import numpy as np
+from dataclasses import dataclass, field
 import matplotlib.pyplot as plt
 
 
@@ -9,8 +9,18 @@ class Metrics:
     a_star_loss: float
     optimality_loss: float
     physics_loss: float
+    t_loss: float
     warming: float
     step: int
+
+
+@dataclass
+class LossLogging:
+    a_star_min_points: list[int] = field(default_factory=list)
+    x_derivative: np.ndarray = field(default_factory=lambda: np.zeros(1))
+    y_derivative: np.ndarray = field(default_factory=lambda: np.zeros(1))
+    v_derivative: np.ndarray = field(default_factory=lambda: np.zeros(1))
+    theta_derivative: np.ndarray = field(default_factory=lambda: np.zeros(1))
 
 
 class Logger:
@@ -25,6 +35,7 @@ class Logger:
                 "loss/physics": metrics.physics_loss,
                 "loss/optimality": metrics.optimality_loss,
                 "loss/warming": metrics.warming,
+                "loss/T": metrics.t_loss,
             },
             step=metrics.step,
         )
@@ -44,7 +55,7 @@ class Logger:
         end_pos,
         turning_points,
         step,
-        a_star_point,
+        plot_logger: LossLogging,
     ) -> None:
         print(f"loss: {loss:>7f}")
         path_x = []
@@ -57,15 +68,22 @@ class Logger:
         path_y = output[:, 1]
         v_list = output[:, 2]
         theta_list = output[:, 3]
+        x_dot = plot_logger.x_derivative
+        y_dot = plot_logger.y_derivative
+        v_dot = plot_logger.v_derivative
+        theta_dot = plot_logger.theta_derivative
         a_list = output[:, 4]
         omega_list = output[:, 5]
+        a_star_point = plot_logger.a_star_min_points
         fig, (ax1, ax2) = plt.subplots(2, 2)
         ax1[0].plot(path_x, path_y, color="orange")
         ax1[0].scatter(path_x, path_y)
         ax2[0].plot(v_list, label=r"$v$")
         ax2[0].plot(theta_list, label=r"$\theta$")
         ax1[1].plot(a_list, label=r"$a$")
+        ax1[1].plot(v_dot, label=r"$\dot{v}$")
         ax2[1].plot(omega_list, label=r"$\omega$")
+        ax2[1].plot(theta_dot, label=r"$\dot{\theta}$")
         ax1[0].imshow(sdf, origin="lower")
         ax1[0].scatter(
             turning_points[:, 0], turning_points[:, 1], color="magenta", marker="*"

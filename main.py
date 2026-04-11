@@ -1,4 +1,3 @@
-# %%
 import comet_ml
 import numpy as np
 import matplotlib.pyplot as plt
@@ -12,7 +11,7 @@ import random
 
 from map_generation import Point, Rectangle, UShape, SShape
 from map_generation import create_u_shape, create_s_shape
-from experiment_logger import Logger, Metrics
+from experiment_logger import Logger, Metrics, LossLogging
 
 
 def seed_everything(seed=42):
@@ -107,7 +106,6 @@ class PINN(nn.Module):
 model = PINN().to(device)
 print(model)
 
-a_star_min_point = None
 u = create_u_shape(Point(10, 10))
 s = create_s_shape(Point(50, 50))
 
@@ -116,6 +114,7 @@ class PathLoss(nn.Module):
     def __init__(
         self,
         logger: Logger,
+        plot_logger: LossLogging,
         rectangles: UShape | SShape,
         start: torch.Tensor,
         end: torch.Tensor,
@@ -124,10 +123,19 @@ class PathLoss(nn.Module):
         self.logger = logger
         self.step = 0
         self.rectangle_list = rectangles
+        self.plot_logger = plot_logger
         self.start = start
         self.end = end
 
-    def forward(self, out, sdf, warming, T, t_steps, iteration):
+    def forward(
+        self,
+        out: torch.Tensor,
+        sdf,
+        warming_it: int,
+        T,
+        t_steps: torch.Tensor,
+        iteration: int,
+    ):
 
         # SDF loss
         tau = 1.0
@@ -192,7 +200,7 @@ class PathLoss(nn.Module):
             + physics_error_y**2
             + physics_error_v**2
             + physics_error_theta**2
-        ).mean()
+        ).sum()
 
         # Optimal path loss
         physical_t = t_steps * T
@@ -202,34 +210,35 @@ class PathLoss(nn.Module):
 
         # A* Loss
         n_turning_points = turning_points.size()[0]
-        n_path_steps = out.size()[0]
-        a_star_loss = 0
+        a_star_loss = 0.0
+        search_start = 0
+        a_star_min_points_list = []
         for i in range(n_turning_points):
-            lower_limit = i * n_path_steps // n_turning_points
-            upper_limit = (i + 1) * n_path_steps // n_turning_points
-            upper_limit = min(n_path_steps, upper_limit)
-            cdist_input_grid = (
-                out[lower_limit:upper_limit, 0:2].clone().unsqueeze(0)
-            )  # (1, N, 2)
-            a_star_dist = torch.cdist(
-                cdist_input_grid, turning_points[i, :].unsqueeze(0)
+            segment = out[search_start:, 0:2].clone().unsqueeze(0)
+            dists = torch.cdist(
+                segment, turning_points[i, :].unsqueeze(0).unsqueeze(0)
             ).squeeze(0)
-            global a_star_min_point
-            min_dist, min_point = torch.min(a_star_dist, dim=0)
-            a_star_min_point = min_point[0].cpu().detach().numpy().item()
+            min_dist, min_point = torch.min(dists, dim=0)
+            global_idx = min_point[0].item() + search_start
+            a_star_min_points_list.append(global_idx)
             a_star_loss += torch.pow(min_dist[0], 2)
+            search_start = global_idx  # next turning point must come after this one
 
         # Boundary loss
         boundary_loss = (out[0, 0:3] - self.start[0:3]).pow(2).sum() + (
             out[-1, 0:3] - self.end[0:3]
         ).pow(2).sum()
 
+        # T loss
+        t_loss = T
+
         # Loss coef
         sdf_coef = 10
-        physics_coef = 10
-        optimality_coef = 3
-        a_star_coef = 0.10
-        boundary_coef = 10
+        physics_coef = 1
+        optimality_coef = 1
+        a_star_coef = 0.05
+        boundary_coef = 1
+        t_coef = 0.1
         warming_coef = torch.sigmoid(
             torch.tensor((iteration - warming_it) / 100, dtype=torch.float32)
         )
@@ -240,19 +249,27 @@ class PathLoss(nn.Module):
         final_physics_loss = physics_coef * physics_loss * warming_coef
         final_optimality_loss = optimality_coef * optimality_loss * warming_coef
         final_boundary_loss = boundary_coef * boundary_loss
+        final_t_loss = t_loss * t_coef
 
         # loggins
         self.step += 1
-        if self.step % 10 == 0:
+        if self.step % hyper_params["logging_it"] == 0:
             metrics = Metrics(
                 final_sdf_loss.item(),
                 final_a_star_loss,
                 final_physics_loss.item(),
                 final_optimality_loss.item(),
+                final_t_loss.item(),
                 warming_coef.item(),
                 self.step,
             )
+            self.plot_logger.a_star_min_points = a_star_min_points_list
+            self.plot_logger.x_derivative = x_dot.detach().cpu().numpy()
+            self.plot_logger.y_derivative = y_dot.detach().cpu().numpy()
+            self.plot_logger.v_derivative = v_dot.detach().cpu().numpy()
+            self.plot_logger.theta_derivative = theta_dot.detach().cpu().numpy()
             logger.log_metrics(metrics)
+        self.step += 1
 
         return (
             # softplus_coef * softplus_loss
@@ -296,12 +313,21 @@ class PathLoss(nn.Module):
         return False
 
 
-loss = PathLoss(logger, s, start_pos, end_pos).to(device)
+plot_logger = LossLogging()
+loss = PathLoss(
+    logger,
+    plot_logger,
+    s,
+    start_pos,
+    end_pos,
+).to(device)
 
 hyper_params = {
-    "learning_rate": 0.002,
-    "training_iterations": 10000,
+    "learning_rate": 0.001,
+    "training_iterations": 20000,
+    "warming_fraction": 4000,
     "path_steps": 100,
+    "logging_it": 250,
 }
 optimizer = torch.optim.AdamW(model.parameters(), lr=hyper_params["learning_rate"])
 
@@ -317,11 +343,11 @@ def train(model, optimizer, device, sdf, loss_fn):
         optimizer.zero_grad()
         path = model(t_steps)
 
-        warming_it = hyper_params["steps"] / 2
+        warming_it = hyper_params["warming_fraction"]
         loss = loss_fn(path, sdf, warming_it, model.T, t_steps, i)
         loss.backward()
         optimizer.step()
-        if i % 250 == 0:
+        if i % hyper_params["logging_it"] == 0:
             path_np = path.detach().cpu().numpy()
             sdf_fig = sdf.detach().cpu().numpy()
             plot_points = turning_points.detach().cpu().numpy()
@@ -335,7 +361,7 @@ def train(model, optimizer, device, sdf, loss_fn):
                 start_pos=sp,
                 end_pos=ep,
                 step=i,
-                a_star_point=a_star_min_point,
+                plot_logger=loss_fn.plot_logger,
             )
 
 
