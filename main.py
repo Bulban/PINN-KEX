@@ -44,7 +44,7 @@ experiment = comet_ml.start(
 )
 logger = Logger(experiment)
 
-sdf = torch.tensor(np.load("./data/distance_field.npy"), dtype=torch.float).to(device)
+sdf = torch.tensor(np.load("./data/occupancy_grid.npy"), dtype=torch.float).to(device)
 uv = torch.tensor(np.load("./data/uv.npy"))
 vv = torch.tensor(np.load("./data/vv.npy"))
 turning_points = torch.tensor(
@@ -82,7 +82,8 @@ class PINN(nn.Module):
         # None for no bound
         V_MAX, V_MIN = 10, 0
         A_MAX, A_MIN = 5, -5
-        OMEGA_MAX, OMEGA_MIN = 1, -1
+        THETA_MAX, THETA_MIN = torch.inf, -torch.inf
+        OMEGA_MAX, OMEGA_MIN = 2, -2
         t = t.view(-1, 1)  # ensure t is (N, 1)
         x = torch.sin(self.dense1(t))
         x = torch.sin(self.dense2(x))
@@ -93,7 +94,9 @@ class PINN(nn.Module):
             [
                 x[:, 0:2],  # x,y unclamped
                 torch.clamp(x[:, 2], V_MIN, V_MAX).unsqueeze(1),  # v clamped
-                x[:, 3].unsqueeze(1),  # theta unclamped
+                torch.clamp(x[:, 3], THETA_MIN, THETA_MAX).unsqueeze(
+                    1
+                ),  # theta clamped
                 torch.clamp(x[:, 4], A_MIN, A_MAX).unsqueeze(1),  # a clamped
                 torch.clamp(x[:, 5], OMEGA_MIN, OMEGA_MAX).unsqueeze(
                     1
@@ -235,10 +238,10 @@ class PathLoss(nn.Module):
         # Loss coef
         sdf_coef = 10
         physics_coef = 1
-        optimality_coef = 1
+        optimality_coef = 0.1
         a_star_coef = 0.05
-        boundary_coef = 1
-        t_coef = 0.1
+        boundary_coef = 0.1
+        t_coef = 0.05
         warming_coef = torch.sigmoid(
             torch.tensor((iteration - warming_it) / 100, dtype=torch.float32)
         )
@@ -252,7 +255,6 @@ class PathLoss(nn.Module):
         final_t_loss = t_loss * t_coef
 
         # loggins
-        self.step += 1
         if self.step % hyper_params["logging_it"] == 0:
             metrics = Metrics(
                 final_sdf_loss.item(),
@@ -272,7 +274,6 @@ class PathLoss(nn.Module):
         self.step += 1
 
         return (
-            # softplus_coef * softplus_loss
             final_sdf_loss
             + final_a_star_loss
             + final_physics_loss

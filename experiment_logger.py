@@ -70,6 +70,7 @@ class Logger:
         theta_list = output[:, 3]
         x_dot = plot_logger.x_derivative
         y_dot = plot_logger.y_derivative
+        v_dot_calc = 
         v_dot = plot_logger.v_derivative
         theta_dot = plot_logger.theta_derivative
         a_list = output[:, 4]
@@ -77,21 +78,21 @@ class Logger:
         a_star_point = plot_logger.a_star_min_points
         fig, (ax1, ax2) = plt.subplots(2, 2)
         ax1[0].plot(path_x, path_y, color="orange")
-        ax1[0].scatter(path_x, path_y)
+        # ax1[0].scatter(path_x, path_y)
         ax2[0].plot(v_list, label=r"$v$")
         ax2[0].plot(theta_list, label=r"$\theta$")
         ax1[1].plot(a_list, label=r"$a$")
-        ax1[1].plot(v_dot, label=r"$\dot{v}$")
+        ax1[1].plot(v_dot, label=r"$\dot{v}$", linestyle="--")
         ax2[1].plot(omega_list, label=r"$\omega$")
-        ax2[1].plot(theta_dot, label=r"$\dot{\theta}$")
-        ax1[0].imshow(sdf, origin="lower")
+        ax2[1].plot(theta_dot, label=r"$\dot{\theta}$", linestyle="--")
+        ax1[0].imshow(sdf, origin="lower", cmap="Greys")
         ax1[0].scatter(
             turning_points[:, 0], turning_points[:, 1], color="magenta", marker="*"
         )
         sp = start_pos
         ax1[0].scatter(sp[0], sp[1], color="limegreen", marker="o")
         ep = end_pos
-        ax1[0].scatter(ep[0], ep[1], color="red", marker="x")
+        # ax1[0].scatter(ep[0], ep[1], color="red", marker="x")
         # Plot the point the A-star loss is based on, i.e. the closest point on the path
         ax1[0].scatter(
             path_x[a_star_point],
