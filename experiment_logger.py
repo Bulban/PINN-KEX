@@ -1,6 +1,7 @@
 import numpy as np
 from dataclasses import dataclass, field
 import matplotlib.pyplot as plt
+import comet_ml
 
 
 @dataclass
@@ -58,53 +59,52 @@ class Logger:
         plot_logger: LossLogging,
     ) -> None:
         print(f"loss: {loss:>7f}")
-        path_x = []
-        path_y = []
-        v_list = []
-        theta_list = []
-        a_list = []
-        omega_list = []
         path_x = output[:, 0]
         path_y = output[:, 1]
         v_list = output[:, 2]
         theta_list = output[:, 3]
         x_dot = plot_logger.x_derivative
         y_dot = plot_logger.y_derivative
-        v_dot_calc = 
+        v_dot_calc = np.sqrt(x_dot * x_dot + y_dot * y_dot)
         v_dot = plot_logger.v_derivative
         theta_dot = plot_logger.theta_derivative
         a_list = output[:, 4]
         omega_list = output[:, 5]
         a_star_point = plot_logger.a_star_min_points
+        fig2, ax3 = plt.subplots()
         fig, (ax1, ax2) = plt.subplots(2, 2)
-        ax1[0].plot(path_x, path_y, color="orange")
+        ax3.plot(path_x, path_y, color="orange")
         # ax1[0].scatter(path_x, path_y)
-        ax2[0].plot(v_list, label=r"$v$")
+        ax1[0].plot(v_list, label=r"$v$")
+        ax1[0].plot(v_dot_calc, label=r"$\sqrt{\dot{x}^2 + \dot{y}^2}$", linestyle="--")
         ax2[0].plot(theta_list, label=r"$\theta$")
         ax1[1].plot(a_list, label=r"$a$")
         ax1[1].plot(v_dot, label=r"$\dot{v}$", linestyle="--")
         ax2[1].plot(omega_list, label=r"$\omega$")
         ax2[1].plot(theta_dot, label=r"$\dot{\theta}$", linestyle="--")
-        ax1[0].imshow(sdf, origin="lower", cmap="Greys")
-        ax1[0].scatter(
+        ax3.imshow(sdf, origin="lower", cmap="Greys")
+        ax3.scatter(
             turning_points[:, 0], turning_points[:, 1], color="magenta", marker="*"
         )
         sp = start_pos
-        ax1[0].scatter(sp[0], sp[1], color="limegreen", marker="o")
+        ax3.scatter(sp[0], sp[1], color="limegreen", marker="o")
         ep = end_pos
-        # ax1[0].scatter(ep[0], ep[1], color="red", marker="x")
+        ax3.scatter(ep[0], ep[1], color="red", marker="x")
         # Plot the point the A-star loss is based on, i.e. the closest point on the path
-        ax1[0].scatter(
-            path_x[a_star_point],
-            path_y[a_star_point],
-            color="yellow",
-            marker="1",
-        )
+        # ax1[0].scatter(
+        #    path_x[a_star_point],
+        #    path_y[a_star_point],
+        #    color="yellow",
+        #    marker="1",
+        # )
         ax2[0].legend()
         ax1[1].legend()
+        ax1[0].legend()
         ax2[1].legend()
-        self.experiment_.log_figure(fig, step=step)
-        plt.close()
+        self.experiment_.log_figure(figure=fig2, step=step)
+        self.experiment_.log_figure(figure=fig, step=step)
+        plt.close(fig)
+        plt.close(fig2)
 
     def end_experiment(self) -> None:
         self.experiment_.end()
