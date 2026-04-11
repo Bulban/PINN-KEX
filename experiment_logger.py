@@ -73,7 +73,7 @@ class Logger:
         a_star_point = plot_logger.a_star_min_points
         fig2, ax3 = plt.subplots()
         fig, (ax1, ax2) = plt.subplots(2, 2)
-        ax3.plot(path_x, path_y, color="orange")
+        ax3.plot(path_x, path_y, color="orange", label="Path")
         # ax1[0].scatter(path_x, path_y)
         ax1[0].plot(v_list, label=r"$v$")
         ax1[0].plot(v_dot_calc, label=r"$\sqrt{\dot{x}^2 + \dot{y}^2}$", linestyle="--")
@@ -84,12 +84,16 @@ class Logger:
         ax2[1].plot(theta_dot, label=r"$\dot{\theta}$", linestyle="--")
         ax3.imshow(sdf, origin="lower", cmap="Greys")
         ax3.scatter(
-            turning_points[:, 0], turning_points[:, 1], color="magenta", marker="*"
+            turning_points[:, 0],
+            turning_points[:, 1],
+            color="magenta",
+            marker="*",
+            label="Guiding points",
         )
         sp = start_pos
-        ax3.scatter(sp[0], sp[1], color="limegreen", marker="o")
+        ax3.scatter(sp[0], sp[1], label="Start point", color="limegreen", marker="o")
         ep = end_pos
-        ax3.scatter(ep[0], ep[1], color="red", marker="x")
+        ax3.scatter(ep[0], ep[1], label="End point", color="red", marker="x")
         # Plot the point the A-star loss is based on, i.e. the closest point on the path
         # ax1[0].scatter(
         #    path_x[a_star_point],
@@ -98,11 +102,12 @@ class Logger:
         #    marker="1",
         # )
         ax2[0].legend()
+        ax3.legend()
         ax1[1].legend()
         ax1[0].legend()
         ax2[1].legend()
-        self.experiment_.log_figure(figure=fig2, step=step)
-        self.experiment_.log_figure(figure=fig, step=step)
+        self.experiment_.log_figure(figure_name="Map", figure=fig2, step=step)
+        self.experiment_.log_figure(figure_name="State Values", figure=fig, step=step)
         plt.close(fig)
         plt.close(fig2)
 
