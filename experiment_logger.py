@@ -57,6 +57,7 @@ class Logger:
         turning_points,
         step,
         plot_logger: LossLogging,
+        t_steps,
     ) -> None:
         print(f"loss: {loss:>7f}")
         path_x = output[:, 0]
@@ -75,13 +76,15 @@ class Logger:
         fig, (ax1, ax2) = plt.subplots(2, 2)
         ax3.plot(path_x, path_y, color="orange", label="Path")
         # ax1[0].scatter(path_x, path_y)
-        ax1[0].plot(v_list, label=r"$v$")
-        ax1[0].plot(v_dot_calc, label=r"$\sqrt{\dot{x}^2 + \dot{y}^2}$", linestyle="--")
-        ax2[0].plot(theta_list, label=r"$\theta$")
-        ax1[1].plot(a_list, label=r"$a$")
-        ax1[1].plot(v_dot, label=r"$\dot{v}$", linestyle="--")
-        ax2[1].plot(omega_list, label=r"$\omega$")
-        ax2[1].plot(theta_dot, label=r"$\dot{\theta}$", linestyle="--")
+        ax1[0].plot(t_steps, v_list, label=r"$v$")
+        ax1[0].plot(
+            t_steps, v_dot_calc, label=r"$\sqrt{\dot{x}^2 + \dot{y}^2}$", linestyle="--"
+        )
+        ax2[0].plot(t_steps, theta_list, label=r"$\theta$")
+        ax1[1].plot(t_steps, a_list, label=r"$a$")
+        ax1[1].plot(t_steps, v_dot, label=r"$\dot{v}$", linestyle="--")
+        ax2[1].plot(t_steps, omega_list, label=r"$\omega$")
+        ax2[1].plot(t_steps, theta_dot, label=r"$\dot{\theta}$", linestyle="--")
         ax3.imshow(sdf, origin="lower", cmap="Greys")
         ax3.scatter(
             turning_points[:, 0],

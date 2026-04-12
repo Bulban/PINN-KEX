@@ -354,6 +354,9 @@ def train(model, optimizer, device, sdf, loss_fn):
             plot_points = turning_points.detach().cpu().numpy()
             sp = start_pos.detach().cpu().numpy()
             ep = end_pos.detach().cpu().numpy()
+            t_steps_scaled = (
+                t_steps.detach().cpu().numpy() * model.T.detach().cpu().item()
+            )
             logger.log_figure(
                 loss=loss.item(),
                 output=path_np,
@@ -363,6 +366,7 @@ def train(model, optimizer, device, sdf, loss_fn):
                 end_pos=ep,
                 step=i,
                 plot_logger=loss_fn.plot_logger,
+                t_steps=t_steps_scaled,
             )
 
 
