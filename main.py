@@ -261,6 +261,7 @@ class PathLoss(nn.Module):
                 final_a_star_loss,
                 final_physics_loss.item(),
                 final_optimality_loss.item(),
+                final_physics_loss.item(),
                 final_t_loss.item(),
                 warming_coef.item(),
                 self.step,
