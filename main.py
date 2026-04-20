@@ -93,9 +93,14 @@ class PINN(nn.Module):
         # x: (N, 6) = N * (x, y, v, theta, a, omega)
         x[:, 0:2] = 50 * torch.tanh(x[:, 0:2]) + self.grid_offset
 
+        path_coords = (
+            (1 - t) * start_pos[0:2].view(1, 2)
+            + t * end_pos[0:2].view(1, 2)
+            + t * (1 - t) * x[:, 0:2]
+        )
         return torch.cat(
             [
-                x[:, 0:2],  # x,y unclamped
+                path_coords,
                 soft_clamp(x[:, 2], V_MIN, V_MAX).unsqueeze(1),
                 x[:, 3].unsqueeze(1),
                 soft_clamp(x[:, 4], A_MIN, A_MAX).unsqueeze(1),
