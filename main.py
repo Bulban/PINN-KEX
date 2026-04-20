@@ -47,16 +47,16 @@ logger = Logger(experiment)
 sdf = torch.tensor(np.load("./data/occupancy_grid.npy"), dtype=torch.float).to(device)
 uv = torch.tensor(np.load("./data/uv.npy"))
 vv = torch.tensor(np.load("./data/vv.npy"))
-turning_points = torch.tensor(
-    np.load("./data/turning_points.npy"), dtype=torch.float
-).to(device)
+turning_points_raw = torch.tensor(np.load("./data/a_star_path.npy"), dtype=torch.float)
+turning_points = turning_points_raw[0 :: len(turning_points_raw) // 4].to(device)
+# turning_points = torch.tensor([]).to(device)
 # plt.imshow(sdf)
 
 # (x, y, v, theta)
-start_pos = torch.tensor([40, 50, 0]).to(
+start_pos = torch.tensor([30, 58, 0]).to(
     device
 )  # np.random.rand(2) * 40, dtype=torch.float).to(device)
-end_pos = torch.tensor([60, 50, 0]).to(
+end_pos = torch.tensor([70, 42, 0]).to(
     device
 )  # np.random.rand(2) * 40, dtype=torch.float).to(device)
 
@@ -113,7 +113,7 @@ model = PINN().to(device)
 print(model)
 
 u = create_u_shape(Point(10, 10))
-s = create_s_shape(Point(50, 50))
+s = create_s_shape(Point(50, 50), 10, 20)
 
 
 class PathLoss(nn.Module):
@@ -154,6 +154,7 @@ class PathLoss(nn.Module):
             dim=1,
         )  # (N, 3)
         d_lse = -torch.logsumexp(-tau * dists, dim=1) / tau  # (N,)
+        d_lse *= -1  # FLIP SIGN!
         k = 1.2  # 1.5  # 1 / 5
 
         sdf_loss = torch.exp(-k * d_lse).mean()
@@ -247,7 +248,6 @@ class PathLoss(nn.Module):
         warming_coef = torch.sigmoid(
             torch.tensor((iteration - warming_it) / 100, dtype=torch.float32)
         )
-
         # Loss term calculation
         final_sdf_loss = sdf_coef * sdf_loss
         final_a_star_loss = a_star_coef * a_star_loss

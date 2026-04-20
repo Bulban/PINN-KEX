@@ -188,7 +188,7 @@ def smooth_sdf(sdf: np.ndarray) -> np.ndarray:
 def main():
     size = 100
     sdf, yv = create_coordinate_array(size)
-    shape = create_s_shape(Point(50, 50))
+    shape = create_s_shape(Point(50, 50), 10, 20)
     for i in range(size):
         for j in range(size):
             sdf[j, i] = calculate_lse_distance(shape, Point(i, j), tau=1)
@@ -202,9 +202,20 @@ def main():
     # loss = -loss_function(sdf)
     # uvloss, vvloss = np.gradient(loss)
     occupancy_grid: np.ndarray = create_occupancy_grid(sdf)
-    goal = (60, 50)
-    start = (40, 50)
+
+    def swap(x):
+        match x:
+            case 1.0:
+                return 0.0
+            case 0.0:
+                return 1.0
+
+    occupancy_grid = np.vectorize(swap)(occupancy_grid)
+
+    goal = (70, 42)
+    start = (30, 58)
     a_star_path = a_star(start, goal, occupancy_grid)
+    print(a_star_path)
     turning_points = np.array(find_retreat_turning_points(a_star_path, goal))
     print(turning_points)
     a_star_array = np.array(a_star_path)
@@ -214,8 +225,11 @@ def main():
     imshow = ax.imshow(sdf, origin="lower")
     fig.colorbar(imshow)
     ax.quiver(vv, uv, scale=50)
-    for point in turning_points:
-        ax.scatter(point[0], point[1])
+    for point in a_star_path:
+        ax.scatter(*point)
+    if turning_points:
+        for point in turning_points:
+            ax.scatter(*point, marker="*", color="r")
     # ax.plot(a_star_array[:, 0], a_star_array[:, 1], color="r")
     # ax.scatter(turning_points[:, 0], turning_points[:, 1])
     # rect = u.rectangles
