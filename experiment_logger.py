@@ -12,6 +12,7 @@ class Metrics:
     physics_loss: float
     t_loss: float
     warming: float
+    boundary_loss: float
     step: int
 
 
@@ -36,6 +37,7 @@ class Logger:
                 "loss/physics": metrics.physics_loss,
                 "loss/optimality": metrics.optimality_loss,
                 "loss/warming": metrics.warming,
+                "loss/boundary": metrics.boundary_loss,
                 "loss/T": metrics.t_loss,
             },
             step=metrics.step,
@@ -86,13 +88,14 @@ class Logger:
         ax2[1].plot(t_steps, omega_list, label=r"$\omega$")
         ax2[1].plot(t_steps, theta_dot, label=r"$\dot{\theta}$", linestyle="--")
         ax3.imshow(sdf, origin="lower", cmap="Greys")
-        ax3.scatter(
-            turning_points[:, 0],
-            turning_points[:, 1],
-            color="magenta",
-            marker="*",
-            label="Guiding points",
-        )
+        if turning_points.size > 0:
+            ax3.scatter(
+                turning_points[:, 0],
+                turning_points[:, 1],
+                color="magenta",
+                marker="*",
+                label="Guiding points",
+            )
         sp = start_pos
         ax3.scatter(sp[0], sp[1], label="Start point", color="limegreen", marker="o")
         ep = end_pos
