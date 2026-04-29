@@ -48,7 +48,7 @@ sdf = torch.tensor(np.load("./data/occupancy_grid.npy"), dtype=torch.float).to(d
 uv = torch.tensor(np.load("./data/uv.npy"))
 vv = torch.tensor(np.load("./data/vv.npy"))
 turning_points_raw = torch.tensor(np.load("./data/a_star_path.npy"), dtype=torch.float)
-turning_points = turning_points_raw[0 :: len(turning_points_raw) // 4].to(device)
+turning_points = turning_points_raw[0 :: len(turning_points_raw) // 4][1:-1].to(device)
 # turning_points = torch.tensor([]).to(device)
 # plt.imshow(sdf)
 
@@ -91,12 +91,12 @@ class PINN(nn.Module):
         x = torch.sin(self.dense3(x))
         x = self.dense4(x)
         # x: (N, 6) = N * (x, y, v, theta, a, omega)
-        x[:, 0:2] = 50 * torch.tanh(x[:, 0:2]) + self.grid_offset
+        x[:, 0:2] = 100 * torch.tanh(x[:, 0:2]) + self.grid_offset
 
         path_coords = (
-            (1 - t) * start_pos[0:2].view(1, 2)
-            + t * end_pos[0:2].view(1, 2)
-            + t * (1 - t) * x[:, 0:2]
+            (1 - t) * start_pos[0:3].view(1, 3)
+            + t * end_pos[0:3].view(1, 3)
+            + t * (1 - t) * x[:, 0:3]
         )
         return torch.cat(
             [
